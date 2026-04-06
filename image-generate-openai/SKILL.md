@@ -1,8 +1,6 @@
 ---
 name: image-generate-openai
 description: Generate and edit images using OpenAI's GPT Image models. Use when the user asks to create, draw, design, or edit an image and has OpenAI configured as their provider.
-skill-deps:
-  - code-execution
 ---
 
 Uses `openai` npm SDK. Get `OPENAI_API_KEY` from env or MEMORY.md.

@@ -1,8 +1,6 @@
 ---
 name: image-generate
 description: Generate and edit images using Google's Gemini image models (Nano Banana). Use when the user asks to create, draw, design, or edit an image.
-skill-deps:
-  - code-execution
 ---
 
 Uses `@google/genai` SDK. Get `GEMINI_API_KEY` from env or MEMORY.md.
