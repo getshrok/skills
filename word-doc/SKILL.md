@@ -24,4 +24,4 @@ The `docx` library creates from scratch only — it cannot open/modify existing 
 - **Never split on `<w:p>` naively.** Paragraphs appear inside tables (`<w:tbl>`) too. Splitting by `<w:p>` mixes top-level body paragraphs with table cell content and will corrupt the document.
 - **Use a real XML parser** (like `fast-xml-parser` or the DOM API) to find direct children of `<w:body>`. Don't use string splitting or regex to locate insertion points.
 - **Text spans multiple runs.** One word can be split across `<w:r>` elements — never assume one sentence = one node.
-- **Validate after editing.** Open the result in LibreOffice or Google Docs before delivering. Corrupt XML produces files that silently fail to open.
+- **Validate after editing.** Re-read the XML after writing to confirm it's well-formed. Corrupt XML produces files that silently fail to open.
