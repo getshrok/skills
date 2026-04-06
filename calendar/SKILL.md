@@ -7,7 +7,7 @@ npm-deps:
 
 ## Scripts
 
-All scripts are in `$SATURDAY_SKILLS_DIR/calendar/` and output JSON to stdout. Run any script with `--help` for usage.
+All scripts are in `$SHROK_SKILLS_DIR/calendar/` and output JSON to stdout. Run any script with `--help` for usage.
 
 All date flags accept ISO 8601, relative (`today`, `tomorrow`), natural (`next monday`), and offset (`in 3 days`).
 

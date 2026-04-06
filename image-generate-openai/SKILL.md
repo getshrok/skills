@@ -5,7 +5,7 @@ skill-deps:
   - code-execution
 ---
 
-**Package:** openai. Get `OPENAI_API_KEY` from env or MEMORY.md. If the user provides a key, save it to MEMORY.md immediately.
+**Package:** openai. Get `OPENAI_API_KEY` from MEMORY.md. If the user provides a key, save it to MEMORY.md immediately.
 
 Save images to `$WORKSPACE_PATH/media/`.
 
