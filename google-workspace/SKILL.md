@@ -5,7 +5,7 @@ description: Work with Google Drive, Docs, and Sheets — list, read, create, ed
 
 ## Scripts
 
-- `gw.mjs` — All Google Workspace operations. Run `gw.mjs --help` for commands.
+- `gw.mjs` — All Google Workspace operations. CLI for all Google Workspace operations. Run via bash: `node gw.mjs <command> [options]`.
 
 ## First-time setup
 

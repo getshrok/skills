@@ -5,7 +5,7 @@ description: Manage Trello boards, lists, cards, labels, and checklists. Use whe
 
 ## Scripts
 
-- `trello.mjs` — All Trello operations. Run `trello.mjs --help` for commands.
+- `trello.mjs` — All Trello operations. CLI for all Trello operations. Run via bash: `node trello.mjs <command> [options]`.
 
 ## First-time setup
 

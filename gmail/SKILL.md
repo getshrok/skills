@@ -5,7 +5,7 @@ description: Read, search, send, and organize Gmail messages via the Gmail API w
 
 ## Scripts
 
-- `gmail.mjs` — All Gmail operations. Run `gmail.mjs --help` for commands.
+- `gmail.mjs` — All Gmail operations. CLI for all Gmail operations. Run via bash: `node gmail.mjs <command> [options]`.
 
 ## First-time setup
 
