@@ -5,7 +5,7 @@ skill-deps:
   - code-execution
 ---
 
-**Packages:** docx (create), mammoth (read).
+**Packages:** docx (create), mammoth (read), jszip (edit existing via XML).
 
 Install into a temp dir per the code-execution skill pattern. Save output to `$WORKSPACE_PATH/media/`.
 
@@ -17,4 +17,4 @@ Table widths use DXA units (1 inch = 1440 DXA), never percentages (percentages b
 
 The `docx` library creates from scratch only — it cannot open/modify existing files. For edits:
 - Extract with mammoth, rebuild with docx (loses some formatting)
-- For surgical edits: unzip the .docx, edit XML in `word/document.xml`, re-zip. Text can be split across multiple XML runs — never assume one sentence = one node.
+- For surgical edits: use jszip to unzip the .docx, edit XML in `word/document.xml`, re-zip. Text can be split across multiple XML runs — never assume one sentence = one node.
