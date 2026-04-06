@@ -5,7 +5,7 @@ skill-deps:
   - code-execution
 ---
 
-**Package:** @google/genai. Get `GEMINI_API_KEY` from env or MEMORY.md.
+**Package:** @google/genai. Get `GEMINI_API_KEY` from env or MEMORY.md. If the user provides a key, save it to MEMORY.md immediately.
 
 Save images to `$WORKSPACE_PATH/media/`.
 
