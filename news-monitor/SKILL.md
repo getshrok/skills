@@ -30,6 +30,8 @@ Search query: <what to search Google News for>
 
 Criteria: <natural language description of what the user actually wants to know — be specific about what to include AND exclude>
 
+One-time: <yes or no — if yes, this watch auto-deletes after the first match>
+
 ## Instructions
 
 1. Run `web_search` with the search query
@@ -39,6 +41,7 @@ Criteria: <natural language description of what the user actually wants to know 
 5. If you report something, append a one-line summary with today's date to MEMORY.md
 6. If nothing new matches, report nothing
 7. Keep the relayed list trimmed to the last 20 entries
+8. If this is a one-time watch and you reported a match, delete this sub-skill directory — the watch is fulfilled
 ```
 
 The sub-skill MEMORY.md starts empty or with a header:
