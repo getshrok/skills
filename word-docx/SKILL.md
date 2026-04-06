@@ -1,5 +1,5 @@
 ---
-name: word-doc
+name: word-docx
 description: Create, read, and edit Word documents (.docx). Use when the user needs reports, letters, resumes, proposals, or any formatted document.
 skill-deps:
   - code-execution
