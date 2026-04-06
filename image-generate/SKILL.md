@@ -1,19 +1,11 @@
 ---
 name: image-generate
 description: Generate and edit images using Google's Gemini image models (Nano Banana). Use when the user asks to create, draw, design, or edit an image.
+skill-deps:
+  - code-execution
 ---
 
-Uses `@google/genai` SDK. Get `GEMINI_API_KEY` from env or MEMORY.md.
-
-Install in a temp dir, generate, then copy output:
-
-```bash
-TMPDIR=$(mktemp -d)
-cd "$TMPDIR" && npm init -y --quiet && npm install --quiet @google/genai
-node script.mjs
-cp *.png "$WORKSPACE_PATH/media/"
-rm -rf "$TMPDIR"
-```
+**Package:** @google/genai. Get `GEMINI_API_KEY` from env or MEMORY.md.
 
 Save images to `$WORKSPACE_PATH/media/`.
 

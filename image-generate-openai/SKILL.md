@@ -1,19 +1,11 @@
 ---
 name: image-generate-openai
 description: Generate and edit images using OpenAI's GPT Image models. Use when the user asks to create, draw, design, or edit an image and has OpenAI configured as their provider.
+skill-deps:
+  - code-execution
 ---
 
-Uses `openai` npm SDK. Get `OPENAI_API_KEY` from env or MEMORY.md.
-
-Install in a temp dir, generate, then copy output:
-
-```bash
-TMPDIR=$(mktemp -d)
-cd "$TMPDIR" && npm init -y --quiet && npm install --quiet openai
-node script.mjs
-cp *.png "$WORKSPACE_PATH/media/"
-rm -rf "$TMPDIR"
-```
+**Package:** openai. Get `OPENAI_API_KEY` from env or MEMORY.md.
 
 Save images to `$WORKSPACE_PATH/media/`.
 

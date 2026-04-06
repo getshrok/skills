@@ -1,11 +1,13 @@
 ---
 name: word-docx
 description: Create, read, and edit Word documents (.docx). Use when the user needs reports, letters, resumes, proposals, or any formatted document.
+skill-deps:
+  - code-execution
 ---
 
 **Packages:** docx (create), mammoth (read), jszip (edit existing via XML).
 
-Install into a temp dir per the code-execution skill pattern. Save output to `$WORKSPACE_PATH/media/`.
+Save output to `$WORKSPACE_PATH/media/`.
 
 ## Tables — DXA width gotcha
 
