@@ -1,13 +1,15 @@
 ---
 name: image-generate-openai
 description: Generate and edit images using OpenAI's GPT Image models. Use when the user asks to create, draw, design, or edit an image and has OpenAI configured as their provider.
-skill-deps:
-  - code-execution
 ---
 
-**Package:** openai. Get `OPENAI_API_KEY` from MEMORY.md. If the user provides a key, save it to MEMORY.md immediately.
+## Scripts
 
-Save images to `$WORKSPACE_PATH/media/`.
+- `generate.mjs` — CLI for image generation and editing. Run via bash: `node generate.mjs <command> [options]`
+
+Pass the API key via `--key` or `OPENAI_API_KEY` env var. Get the key from MEMORY.md if configured.
+
+Save output to `$WORKSPACE_PATH/media/`.
 
 ## Models
 
@@ -19,8 +21,6 @@ Save images to `$WORKSPACE_PATH/media/`.
 
 ## Options
 
-**Sizes:** `1024x1024`, `1536x1024`, `1024x1536`, `auto`
+**Sizes:** `1024x1024` (default), `1536x1024`, `1024x1536`, `auto`
 
-**Quality:** `low`, `medium`, `high`, `auto`
-
-**Output formats:** `png` (default), `webp`, `jpeg`. Use `png` or `webp` for transparency support.
+**Quality:** `low`, `medium`, `high`, `auto` (default)
