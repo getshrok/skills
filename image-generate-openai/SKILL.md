@@ -11,6 +11,8 @@ Pass the API key via `--key` or `OPENAI_API_KEY` env var. Get the key from MEMOR
 
 Save output to `$WORKSPACE_PATH/media/`.
 
+**Important:** Image generation takes 30-60+ seconds. Set bash timeout to at least 120000ms: `{"command": "...", "timeout": 120000}`
+
 ## Models
 
 | Model | Notes |

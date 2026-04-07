@@ -118,7 +118,8 @@ try {
   let imageBuffer
 
   switch (cmd) {
-    case 'create': {
+    case 'create':
+    case 'generate': {
       if (!opts.prompt) { console.error('--prompt required'); process.exit(1) }
       imageBuffer = await generate(key, opts.prompt, opts)
       break
