@@ -1,10 +1,8 @@
 <h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Shrok Skills</h1>
 
-Skills for [Shrok](https://github.com/getshrok/shrok).
-
 ## Install
 
-From inside Shrok, ask it to install a skill by name — or use the `skills/update` skill to browse and install from this repo.
+Ask [Shrok](https://github.com/getshrok/shrok) to install a skill by name — or use the `skills/update` skill to browse and install from this repo.
 
 ## Available skills
 
