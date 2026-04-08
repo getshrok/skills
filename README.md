@@ -1,4 +1,4 @@
-# Shrok Community Skills
+<h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Shrok Community Skills</h1>
 
 Community-maintained skills for [Shrok](https://github.com/getshrok/shrok).
 
