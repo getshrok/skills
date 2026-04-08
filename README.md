@@ -14,14 +14,14 @@ From inside Shrok, ask it to install a skill by name — or use the `skills/upda
 | email | IMAP/SMTP email |
 | gmail | Gmail via OAuth2 |
 | google-workspace | Google Workspace suite |
-| image-generate | Image generation (Anthropic) |
+| image-generate-google | Image generation (Google) |
 | image-generate-openai | Image generation (OpenAI) |
 | morning-briefing | Daily briefing |
 | news-monitor | News monitoring |
 | notion | Notion pages and databases |
 | obsidian | Obsidian vault notes |
 | pdf | PDF reading and creation |
-| screenshot | Screenshots |
+| screen-peek | Screenshots the host machine so Shrok can see it |
 | spreadsheet | Spreadsheet operations |
 | trello | Trello boards and cards |
 | weather | Weather lookups |
