@@ -7,12 +7,7 @@ Deliver a concise, personalized briefing based on what you know about the user's
 
 ## What to draw from
 
-Pull from everything available to you:
-
-- **Identity files** — USER.md for preferences, habits, people in their life; SOUL.md for your personality
-- **Memory** — recent conversations, ongoing projects, things the user cares about, commitments they've made
-- **Notes** — anything the user has asked you to remember
-- **Schedules and reminders** — what's set up, what's due
+- **Reminders** — anything due or upcoming
 - **Any installed skills or integrations** — if you can check weather, email, calendar, repos, etc., do it. But don't fail or apologize if those aren't available.
 
 ## How to build the briefing
@@ -31,15 +26,3 @@ Pull from everything available to you:
 - Proactive suggestions — things you could handle for them, things worth checking on
 
 **End with focus.** One sentence: the single most important thing for today. Not a motivational quote — an actual priority.
-
-## Tone
-
-Match the user's personality and your own (from SOUL.md). Be direct and useful, not corporate. "You've got that dentist appointment at 2" not "Reminder: You have a scheduled dental appointment at 14:00." Be warm but don't waste their time.
-
-## Scheduling
-
-When set up as a scheduled skill, run in the morning on weekdays. Weekend briefings should be lighter — only surface things that actually matter over the weekend. If nothing does, say so in one line and move on.
-
-## Responding to partial requests
-
-If the user asks for just part of the briefing ("what's overdue?", "what do I have today?", "anything I should know?"), answer just that — don't deliver the full briefing.
