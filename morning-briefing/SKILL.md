@@ -9,7 +9,6 @@ Deliver a concise, personalized briefing based on what you know about the user's
 
 Pull from everything available to you:
 
-- **AMBIENT.md** — the current situational snapshot (upcoming events, pending items, active context)
 - **Identity files** — USER.md for preferences, habits, people in their life; SOUL.md for your personality
 - **Memory** — recent conversations, ongoing projects, things the user cares about, commitments they've made
 - **Notes** — anything the user has asked you to remember
