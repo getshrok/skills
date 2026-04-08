@@ -1,5 +1,5 @@
 ---
-name: image-generate
+name: image-generate-google
 description: Generate and edit images using Google's Gemini image models (Nano Banana). Use when the user asks to create, draw, design, or edit an image.
 skill-deps:
   - code-execution
