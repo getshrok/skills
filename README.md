@@ -9,6 +9,7 @@ Ask [Shrok](https://github.com/getshrok/shrok) to install a skill by name — or
 | calendar | CalDAV calendar events |
 | create-image | Image generation (OpenAI or Google) |
 | email | IMAP/SMTP email |
+| email-triage | Checks the inbox on a schedule and routes each new email to a focused handler |
 | gmail | Gmail via OAuth2 |
 | google-workspace | Google Workspace suite |
 | morning-briefing | Daily briefing |
