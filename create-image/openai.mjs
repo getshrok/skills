@@ -24,7 +24,7 @@ function getKey(opts) {
 }
 
 async function generate(key, prompt, opts) {
-  const model = opts.model || 'gpt-image-1'
+  const model = opts.model || 'gpt-image-1.5'
   const size = opts.size || '1024x1024'
   const quality = opts.quality || 'auto'
 
@@ -52,7 +52,7 @@ async function generate(key, prompt, opts) {
 }
 
 async function edit(key, imagePath, prompt, opts) {
-  const model = opts.model || 'gpt-image-1'
+  const model = opts.model || 'gpt-image-1.5'
   const size = opts.size || 'auto'
   const quality = opts.quality || 'auto'
 
@@ -96,7 +96,7 @@ async function edit(key, imagePath, prompt, opts) {
 const [cmd, ...args] = process.argv.slice(2)
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
-  console.log(`Usage: generate.mjs <command> [options]
+  console.log(`Usage: openai.mjs <command> [options]
 
 Pass API key via --key or OPENAI_API_KEY env var.
 
@@ -104,7 +104,7 @@ Commands:
   create --prompt TEXT [--out PATH] [--model M] [--size S] [--quality Q]
   edit --image PATH --prompt TEXT [--out PATH] [--model M] [--size S] [--quality Q]
 
-Models: gpt-image-1 (default), gpt-image-1.5 (best), gpt-image-1-mini (fast)
+Models: gpt-image-1.5 (default), gpt-image-1-mini (fast), gpt-image-1 (legacy)
 Sizes: 1024x1024 (default), 1536x1024, 1024x1536, auto
 Quality: low, medium, high, auto (default)`)
   process.exit(0)
@@ -130,7 +130,7 @@ try {
       break
     }
     default:
-      console.error(`Unknown command: ${cmd}. Run generate.mjs --help`)
+      console.error(`Unknown command: ${cmd}. Run openai.mjs --help`)
       process.exit(1)
   }
 

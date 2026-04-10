@@ -7,11 +7,10 @@ Ask [Shrok](https://github.com/getshrok/shrok) to install a skill by name — or
 | Skill | Description |
 |-------|-------------|
 | calendar | CalDAV calendar events |
+| create-image | Image generation (OpenAI or Google) |
 | email | IMAP/SMTP email |
 | gmail | Gmail via OAuth2 |
 | google-workspace | Google Workspace suite |
-| image-generate-google | Image generation (Google) |
-| image-generate-openai | Image generation (OpenAI) |
 | morning-briefing | Daily briefing |
 | news-monitor | News monitoring |
 | notion | Notion pages and databases |
