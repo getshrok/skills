@@ -1,13 +1,13 @@
 ---
 name: x
 description: Post tweets, threads, and replies on X (formerly Twitter). Read tweets and timelines if on Basic tier or higher.
-npm-deps:
-  - twitter-api-v2
 ---
 
 ## Scripts
 
 - `x.mjs` -- All X operations. CLI for all X operations. Run via bash: `node x.mjs <command> [options]`.
+
+npm-deps: twitter-api-v2
 
 ## Credentials (MEMORY.md)
 

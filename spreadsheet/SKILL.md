@@ -1,8 +1,6 @@
 ---
 name: spreadsheet
 description: Create, read, edit, and analyze spreadsheets (.xlsx, .csv). Use when the user needs tabular data work — budgets, reports, logs, data cleanup, exports.
-skill-deps:
-  - code-execution
 ---
 
 **Package:** exceljs (for .xlsx). Node.js builtins for .csv.

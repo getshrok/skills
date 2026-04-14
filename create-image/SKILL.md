@@ -1,8 +1,6 @@
 ---
 name: create-image
 description: Generate and edit images using OpenAI (GPT Image) or Google (Gemini / Nano Banana). Use when the user asks to create, draw, design, or edit an image.
-skill-deps:
-  - code-execution
 ---
 
 Two providers are supported. Pick whichever key the user has in MEMORY.md (`OPENAI_API_KEY` or `GEMINI_API_KEY`). If both are present, default to OpenAI unless the user has expressed a preference. **If one provider fails, fall back to the other before reporting an error.** If the user supplies a new key, save it to MEMORY.md immediately.

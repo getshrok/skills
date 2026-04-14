@@ -1,8 +1,6 @@
 ---
 name: calendar
 description: Read, create, update, and delete calendar events via CalDAV.
-npm-deps:
-  - tsdav
 ---
 
 ## Scripts
@@ -10,6 +8,8 @@ npm-deps:
 All scripts are in `$SHROK_SKILLS_DIR/calendar/` and output JSON to stdout. Run any script with `--help` for usage.
 
 All date flags accept ISO 8601, relative (`today`, `tomorrow`), natural (`next monday`), and offset (`in 3 days`).
+
+npm-deps: tsdav
 
 ## Auth
 

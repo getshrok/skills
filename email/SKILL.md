@@ -1,9 +1,6 @@
 ---
 name: email
 description: Read, search, and send email via IMAP/SMTP.
-npm-deps:
-  - imapflow
-  - nodemailer
 ---
 
 ## Scripts
@@ -11,6 +8,8 @@ npm-deps:
 All scripts are in `$SHROK_SKILLS_DIR/email/` and output JSON to stdout. Run any script with `--help` for usage.
 
 All date flags accept ISO 8601, relative (`today`, `yesterday`), natural (`next monday`), and offset (`in 3 days`, `7 days ago`).
+
+npm-deps: imapflow, nodemailer
 
 ## Auth
 
