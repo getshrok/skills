@@ -1,6 +1,6 @@
-<h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Skills for <a href="https://github.com/getshrok/shrok">Shrok</a></h1>
+<h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Skills for Shrok</h1>
 
-Ask your Shrok to install a skill by name (mention this repo explicitly for best results), or place one of the skill folders above into ~/.shrok/workspace/skills
+Ask your [Shrok](https://github.com/getshrok/shrok) to install a skill by name (mention this repo explicitly for best results), or place one of the skill folders above into ~/.shrok/workspace/skills
 
 ## Available skills
 
