@@ -1,6 +1,6 @@
-<h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Shrok Skills</h1>
+<h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Skills for [Shrok](https://github.com/getshrok/shrok)</h1>
 
-Ask [Shrok](https://github.com/getshrok/shrok) to install a skill by name — or use the `skills/update` skill to browse and install from this repo.
+Ask your Shrok to install a skill by name (mention this repo explicitly for best results), or place one of the skill folders above into ~/.shrok/workspace/skills
 
 ## Available skills
 
@@ -28,4 +28,4 @@ Ask [Shrok](https://github.com/getshrok/shrok) to install a skill by name — or
 
 ## Contributing
 
-Each skill is a directory with a `SKILL.md` and optional scripts. See the [skills skill](https://github.com/getshrok/shrok/blob/main/skills/skills/SKILL.md) for conventions.
+Each skill is a directory with a `SKILL.md` and optional scripts. See the [skills skill](https://github.com/getshrok/shrok/blob/main/skills/skills/SKILL.md) for best practices. If you have a skill to contribute, feel free to open a PR.
