@@ -1,4 +1,4 @@
-<h1><img src="[dashboard/public/logo.svg](https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg)" width="32" height="32" /> Shrok</h1>
+<h1><img src="https://raw.githubusercontent.com/getshrok/shrok/main/dashboard/public/logo.svg" width="32" height="32" /> Shrok</h1>
 
 Ask your Shrok to install a skill by name (mention this repo explicitly for best results), or place one of the skill folders above into ~/.shrok/workspace/skills
 
