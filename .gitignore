@@ -1,0 +1,10 @@
+# npm artifacts from per-skill dependency installation
+*/node_modules/
+*/package.json
+*/package-lock.json
+
+# skill credentials — never commit
+*/MEMORY.md
+
+# …except deliberate bootstrap files shipped with a skill (self-destruct on first run)
+!email-triage/MEMORY.md
