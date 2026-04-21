@@ -1,6 +1,6 @@
 ---
 name: morning-briefing
-description: Personalized daily briefing — what's ahead, what needs attention, what's relevant right now. Runs on demand or as a scheduled skill.
+description: Personalized daily briefing — what's ahead, what needs attention, what's relevant right now.
 ---
 
 Deliver a concise, personalized briefing based on what you know about the user's life, work, and current situation. This isn't a template to fill — it's a synthesis. Every briefing should feel like it was written by someone who knows the user well.
