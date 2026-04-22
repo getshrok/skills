@@ -12,7 +12,6 @@ Ask your Shrok to install a skill by name (mention this repo explicitly for best
 | email-triage | IMAP inbox monitor (scheduled — routes new email to handlers) |
 | gmail | Gmail API via OAuth2 (read, search, send, organize) |
 | google-workspace | Google Drive, Docs, Sheets (list, read, create, edit, share) |
-| morning-briefing | Daily briefing (scheduled — calendar, priorities, context) |
 | news-monitor | Google News (scheduled — monitors topics, alerts on matches) |
 | notion | Notion API (read, create, update, query pages and databases) |
 | obsidian | Obsidian vault (read, search, create, organize notes) |
