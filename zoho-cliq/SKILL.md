@@ -11,7 +11,7 @@ Credentials are stored in this skill's `MEMORY.md`:
 
 `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_CLIQ_CHAT_ID`
 
-Required scopes: `ZohoCliq.Messages.READ,ZohoCliq.Messages.CREATE,ZohoCliq.Chats.READ`
+Required scopes: `ZohoCliq.Messages.READ,ZohoCliq.Messages.CREATE,ZohoCliq.Chats.READ,ZohoCliq.Channels.READ,ZohoCliq.Webhooks.CREATE`
 
 ## Notes
 
