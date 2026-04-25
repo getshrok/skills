@@ -1,23 +1,20 @@
 ---
 name: gmail
-description: Read, search, send, and organize Gmail messages via the Gmail API with OAuth2 authentication.
+description: "Read, search, send, and organize Gmail messages."
 ---
 
 ## Scripts
 
 - `gmail.mjs` — All Gmail operations. CLI for all Gmail operations. Run via bash: `node gmail.mjs <command> [options]`.
 
-## First-time setup
+## Credentials
 
-1. Write `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` to MEMORY.md
-2. Run `gmail.mjs auth-url` — send the URL to the user to visit
-3. User provides the code from the redirect URL
-4. Run `gmail.mjs auth-exchange <code>` — write the returned `refresh_token` as `GMAIL_REFRESH_TOKEN` to MEMORY.md
+Credentials are **required as environment variables** at invocation time — the script will immediately error without them.
 
-## MEMORY.md format
-
+```bash
+GMAIL_CLIENT_ID=... GMAIL_CLIENT_SECRET=... GMAIL_REFRESH_TOKEN=... node gmail.mjs <command>
 ```
-GMAIL_CLIENT_ID=...
-GMAIL_CLIENT_SECRET=...
-GMAIL_REFRESH_TOKEN=...
-```
+
+## Token Cache
+
+Access tokens are cached in `.token-cache` (JSON, gitignored) and keyed by `GMAIL_CLIENT_ID`, so multiple accounts cache independently without collision. Tokens are reused until 60 seconds before expiry, then refreshed automatically. You do not need to manage this manually.
