@@ -1,32 +1,37 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const SKILL_DIR = import.meta.dirname
-const MEMORY_FILE = join(SKILL_DIR, 'MEMORY.md')
 const TOKEN_CACHE = join(SKILL_DIR, '.token-cache')
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
-const SCOPES = 'https://www.googleapis.com/auth/gmail.modify'
+const SCOPES = 'https://mail.google.com/'
 const REDIRECT_URI = 'http://localhost'
 
-// Read KEY=value pairs from MEMORY.md
-function loadMemory() {
-  if (!existsSync(MEMORY_FILE)) return {}
-  const result = {}
-  for (const line of readFileSync(MEMORY_FILE, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq === -1) continue
-    result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim()
+// Credentials must be supplied as environment variables at invocation time.
+// See MEMORY.md for the values to use for each account.
+function requireCredentials() {
+  const missing = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']
+    .filter(k => !process.env[k])
+  if (missing.length) {
+    throw new Error(
+      `Missing required environment variable(s): ${missing.join(', ')}\n` +
+      `Set them at invocation time, e.g.:\n` +
+      `  GMAIL_CLIENT_ID=... GMAIL_CLIENT_SECRET=... GMAIL_REFRESH_TOKEN=... node gmail.mjs <command>\n` +
+      `See MEMORY.md for credential values for each account.`
+    )
   }
-  return result
+  return {
+    clientId:     process.env.GMAIL_CLIENT_ID,
+    clientSecret: process.env.GMAIL_CLIENT_SECRET,
+    refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+  }
 }
 
-// Ephemeral token cache (changes every hour, doesn't belong in MEMORY.md)
+// Token cache is keyed by client ID so multiple accounts don't collide.
 function loadTokenCache() {
   try { return JSON.parse(readFileSync(TOKEN_CACHE, 'utf8')) } catch { return {} }
 }
@@ -36,24 +41,22 @@ function saveTokenCache(cache) {
 }
 
 async function getAccessToken() {
-  const mem = loadMemory()
-  if (!mem.GMAIL_REFRESH_TOKEN) {
-    throw new Error('No GMAIL_REFRESH_TOKEN in MEMORY.md. Complete OAuth setup first.')
-  }
-  // Return cached token if not expired (60s buffer)
+  const { clientId, clientSecret, refreshToken } = requireCredentials()
+  // Return cached token if not expired (60s buffer), keyed by client ID
   const cache = loadTokenCache()
-  if (cache.access_token && cache.expiry && Date.now() < cache.expiry - 60_000) {
-    return cache.access_token
+  const entry = cache[clientId]
+  if (entry?.access_token && entry?.expiry && Date.now() < entry.expiry - 60_000) {
+    return entry.access_token
   }
   // Refresh
   const resp = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: mem.GMAIL_CLIENT_ID,
-      client_secret: mem.GMAIL_CLIENT_SECRET,
-      refresh_token: mem.GMAIL_REFRESH_TOKEN,
-      grant_type: 'refresh_token',
+      client_id:     clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type:    'refresh_token',
     }),
   })
   if (!resp.ok) {
@@ -61,7 +64,8 @@ async function getAccessToken() {
     throw new Error(`Token refresh failed (${resp.status}): ${err}`)
   }
   const data = await resp.json()
-  saveTokenCache({ access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 })
+  cache[clientId] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
+  saveTokenCache(cache)
   return data.access_token
 }
 
@@ -110,7 +114,8 @@ const [cmd, ...args] = process.argv.slice(2)
 if (!cmd || cmd === '--help' || cmd === '-h') {
   console.log(`Usage: gmail.mjs <command> [options]
 
-Reads credentials from MEMORY.md (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN).
+Credentials must be supplied as environment variables at invocation time (see MEMORY.md):
+  GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN
 
 Commands:
   auth-url                          Print OAuth authorization URL
@@ -118,27 +123,27 @@ Commands:
   token                             Print current access token
   profile                           Show authenticated user's email
   list [--query Q] [--max N]        List messages (default: 10)
-  read <id>                         Read a message (decoded body + headers)
-  thread <id>                       Read all messages in a thread
+  read <msgId>                      Read a message (decoded body + headers)
+  thread <threadId>                 Read all messages in a thread
   send --to ADDR --subject S --body B [--thread T] [--reply-to MSG_ID]
   draft --to ADDR --subject S --body B [--thread T] [--reply-to MSG_ID]
-  send-draft <draft-id>             Send an existing draft
-  trash <id>                        Move a message to trash
+  send-draft <draftId>              Send an existing draft
+  trash <msgId>                     Move a message to trash
   labels                            List all labels
-  modify <id> [--add L] [--remove L]  Add/remove labels on a message`)
+  modify <msgId> [--add L] [--remove L]  Add/remove labels on a message`)
   process.exit(0)
 }
 
 try {
   switch (cmd) {
     case 'auth-url': {
-      const mem = loadMemory()
-      if (!mem.GMAIL_CLIENT_ID) {
-        console.error('No GMAIL_CLIENT_ID in MEMORY.md')
+      const clientId = process.env.GMAIL_CLIENT_ID
+      if (!clientId) {
+        console.error('GMAIL_CLIENT_ID environment variable is required for auth-url.')
         process.exit(1)
       }
       const params = new URLSearchParams({
-        client_id: mem.GMAIL_CLIENT_ID,
+        client_id: clientId,
         redirect_uri: REDIRECT_URI,
         response_type: 'code',
         scope: SCOPES,
@@ -152,9 +157,10 @@ try {
     case 'auth-exchange': {
       const code = args[0]
       if (!code) { console.error('Usage: gmail.mjs auth-exchange <code>'); process.exit(1) }
-      const mem = loadMemory()
-      if (!mem.GMAIL_CLIENT_ID) {
-        console.error('No GMAIL_CLIENT_ID in MEMORY.md')
+      const clientId     = process.env.GMAIL_CLIENT_ID
+      const clientSecret = process.env.GMAIL_CLIENT_SECRET
+      if (!clientId || !clientSecret) {
+        console.error('GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET environment variables are required for auth-exchange.')
         process.exit(1)
       }
       const resp = await fetch(TOKEN_URL, {
@@ -162,10 +168,10 @@ try {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           code,
-          client_id: mem.GMAIL_CLIENT_ID,
-          client_secret: mem.GMAIL_CLIENT_SECRET,
-          redirect_uri: REDIRECT_URI,
-          grant_type: 'authorization_code',
+          client_id:     clientId,
+          client_secret: clientSecret,
+          redirect_uri:  REDIRECT_URI,
+          grant_type:    'authorization_code',
         }),
       })
       const data = await resp.json()
@@ -173,8 +179,10 @@ try {
         console.error(JSON.stringify({ error: data.error, description: data.error_description }))
         process.exit(1)
       }
-      // Print the refresh token so the agent can write it to MEMORY.md
-      saveTokenCache({ access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 })
+      // Cache the access token keyed by client ID
+      const cache = loadTokenCache()
+      cache[clientId] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
+      saveTokenCache(cache)
       console.log(JSON.stringify({ ok: true, refresh_token: data.refresh_token, scope: data.scope }))
       break
     }
@@ -227,7 +235,7 @@ try {
 
     case 'read': {
       const id = args[0]
-      if (!id) { console.error('Usage: gmail.mjs read <message-id>'); process.exit(1) }
+      if (!id) { console.error('Usage: gmail.mjs read <msgId>'); process.exit(1) }
       const msg = await gmailFetch(`/messages/${id}?format=full`)
       const headers = msg.payload?.headers ?? []
       console.log(JSON.stringify({
@@ -286,7 +294,7 @@ try {
 
     case 'thread': {
       const id = args[0]
-      if (!id) { console.error('Usage: gmail.mjs thread <thread-id>'); process.exit(1) }
+      if (!id) { console.error('Usage: gmail.mjs thread <threadId>'); process.exit(1) }
       const data = await gmailFetch(`/threads/${id}?format=full`)
       const messages = (data.messages ?? []).map(msg => {
         const headers = msg.payload?.headers ?? []
@@ -336,7 +344,7 @@ try {
 
     case 'send-draft': {
       const id = args[0]
-      if (!id) { console.error('Usage: gmail.mjs send-draft <draft-id>'); process.exit(1) }
+      if (!id) { console.error('Usage: gmail.mjs send-draft <draftId>'); process.exit(1) }
       const result = await gmailFetch('/drafts/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -348,7 +356,7 @@ try {
 
     case 'trash': {
       const id = args[0]
-      if (!id) { console.error('Usage: gmail.mjs trash <message-id>'); process.exit(1) }
+      if (!id) { console.error('Usage: gmail.mjs trash <msgId>'); process.exit(1) }
       await gmailFetch(`/messages/${id}/trash`, { method: 'POST' })
       console.log(JSON.stringify({ ok: true, trashed: id }))
       break
@@ -356,7 +364,7 @@ try {
 
     case 'modify': {
       const id = args[0]
-      if (!id) { console.error('Usage: gmail.mjs modify <id> [--add L] [--remove L]'); process.exit(1) }
+      if (!id) { console.error('Usage: gmail.mjs modify <msgId> [--add L] [--remove L]'); process.exit(1) }
       const addLabels = [], removeLabels = []
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--add') addLabels.push(args[++i])
