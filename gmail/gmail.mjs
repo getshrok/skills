@@ -11,8 +11,6 @@ const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const SCOPES = 'https://mail.google.com/'
 const REDIRECT_URI = 'http://localhost'
 
-// Credentials must be supplied as environment variables at invocation time.
-// See MEMORY.md for the values to use for each account.
 function requireCredentials() {
   const missing = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']
     .filter(k => !process.env[k])
@@ -31,7 +29,6 @@ function requireCredentials() {
   }
 }
 
-// Token cache is keyed by client ID so multiple accounts don't collide.
 function loadTokenCache() {
   try { return JSON.parse(readFileSync(TOKEN_CACHE, 'utf8')) } catch { return {} }
 }
@@ -42,13 +39,11 @@ function saveTokenCache(cache) {
 
 async function getAccessToken() {
   const { clientId, clientSecret, refreshToken } = requireCredentials()
-  // Return cached token if not expired (60s buffer), keyed by client ID
   const cache = loadTokenCache()
   const entry = cache[clientId]
   if (entry?.access_token && entry?.expiry && Date.now() < entry.expiry - 60_000) {
     return entry.access_token
   }
-  // Refresh
   const resp = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -107,6 +102,17 @@ function extractBody(payload) {
 
 function hdr(headers, name) {
   return headers?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value ?? ''
+}
+
+async function batchFetch(ids, fetchFn, batchSize = 5, delayMs = 200) {
+  const results = []
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize)
+    const batchResults = await Promise.all(batch.map(fetchFn))
+    results.push(...batchResults)
+    if (i + batchSize < ids.length) await new Promise(r => setTimeout(r, delayMs))
+  }
+  return results
 }
 
 const [cmd, ...args] = process.argv.slice(2)
@@ -179,7 +185,6 @@ try {
         console.error(JSON.stringify({ error: data.error, description: data.error_description }))
         process.exit(1)
       }
-      // Cache the access token keyed by client ID
       const cache = loadTokenCache()
       cache[clientId] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
       saveTokenCache(cache)
@@ -212,23 +217,20 @@ try {
         console.log(JSON.stringify({ messages: [], resultSizeEstimate: 0 }))
         break
       }
-      // Fetch metadata for each
-      const messages = await Promise.all(
-        listData.messages.map(async m => {
-          const msg = await gmailFetch(
-            `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
-          )
-          return {
-            id: msg.id,
-            threadId: msg.threadId,
-            from: hdr(msg.payload?.headers, 'From'),
-            subject: hdr(msg.payload?.headers, 'Subject'),
-            date: hdr(msg.payload?.headers, 'Date'),
-            snippet: msg.snippet,
-            labels: msg.labelIds,
-          }
-        })
-      )
+      const messages = await batchFetch(listData.messages, async m => {
+        const msg = await gmailFetch(
+          `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
+        )
+        return {
+          id: msg.id,
+          threadId: msg.threadId,
+          from: hdr(msg.payload?.headers, 'From'),
+          subject: hdr(msg.payload?.headers, 'Subject'),
+          date: hdr(msg.payload?.headers, 'Date'),
+          snippet: msg.snippet,
+          labels: msg.labelIds,
+        }
+      })
       console.log(JSON.stringify({ messages, resultSizeEstimate: listData.resultSizeEstimate }, null, 2))
       break
     }
@@ -370,7 +372,7 @@ try {
         if (args[i] === '--add') addLabels.push(args[++i])
         else if (args[i] === '--remove') removeLabels.push(args[++i])
       }
-      const result = await gmailFetch(`/messages/${id}/modify`, {
+      const result = await gmailFetch(`/messages/${i}/modify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ addLabelIds: addLabels, removeLabelIds: removeLabels }),
