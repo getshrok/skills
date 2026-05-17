@@ -128,7 +128,7 @@ Commands:
   auth-exchange <code>              Exchange authorization code, print refresh token
   token                             Print current access token
   profile                           Show authenticated user's email
-  list [--query Q] [--max N]        List messages (default: 10)
+  list [--query Q] [--max N] [--since ISO]  List messages (default: 10; --since filters by receipt time)
   read <msgId>                      Read a message (decoded body + headers)
   thread <threadId>                 Read all messages in a thread
   send --to ADDR --subject S --body B [--thread T] [--reply-to MSG_ID]
@@ -206,18 +206,30 @@ try {
     case 'list': {
       const params = new URLSearchParams()
       let max = 10
+      let query = ''
+      let sinceMs = null
       for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--query' || args[i] === '-q') params.set('q', args[++i])
+        if (args[i] === '--query' || args[i] === '-q') query = args[++i]
         else if (args[i] === '--max' || args[i] === '-n') max = parseInt(args[++i])
         else if (args[i] === '--label') params.set('labelIds', args[++i])
+        else if (args[i] === '--since') {
+          const raw = args[++i]
+          const t = Date.parse(raw)
+          if (Number.isNaN(t)) { console.error(`Invalid --since value: "${raw}"`); process.exit(1) }
+          sinceMs = t
+          // Narrow server-side. Gmail's after: operator is only day-precise,
+          // so this is a coarse prefilter; the exact cutoff is enforced below.
+          query = `${query} after:${Math.floor(t / 1000)}`.trim()
+        }
       }
+      if (query) params.set('q', query)
       params.set('maxResults', String(max))
       const listData = await gmailFetch(`/messages?${params}`)
       if (!listData?.messages?.length) {
         console.log(JSON.stringify({ messages: [], resultSizeEstimate: 0 }))
         break
       }
-      const messages = await batchFetch(listData.messages, async m => {
+      let messages = await batchFetch(listData.messages, async m => {
         const msg = await gmailFetch(
           `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
         )
@@ -227,11 +239,21 @@ try {
           from: hdr(msg.payload?.headers, 'From'),
           subject: hdr(msg.payload?.headers, 'Subject'),
           date: hdr(msg.payload?.headers, 'Date'),
+          internalDate: msg.internalDate,
           snippet: msg.snippet,
           labels: msg.labelIds,
         }
       })
-      console.log(JSON.stringify({ messages, resultSizeEstimate: listData.resultSizeEstimate }, null, 2))
+      // Exact --since cutoff. Gmail's after: operator is only day-precise and
+      // keys off the Date header, which can drift from the real receipt time.
+      // internalDate is Gmail's authoritative receipt timestamp (epoch ms).
+      if (sinceMs !== null) {
+        messages = messages.filter(m => Number(m.internalDate) >= sinceMs)
+      }
+      console.log(JSON.stringify({
+        messages,
+        resultSizeEstimate: sinceMs !== null ? messages.length : listData.resultSizeEstimate,
+      }, null, 2))
       break
     }
 
