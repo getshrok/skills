@@ -11,6 +11,19 @@ const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const SCOPES = 'https://mail.google.com/'
 const REDIRECT_URI = 'http://localhost'
 
+// Format a Date as ISO 8601 with the system's local timezone offset
+// (e.g. "2026-05-21T10:30:00-04:00"). Returns null for invalid dates.
+function toLocalISO(d) {
+  if (!d || isNaN(d.getTime())) return null
+  const pad = (n, w = 2) => String(n).padStart(w, '0')
+  const tz = -d.getTimezoneOffset()
+  const sign = tz >= 0 ? '+' : '-'
+  const absTz = Math.abs(tz)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+         `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
+}
+
 function requireCredentials() {
   const missing = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']
     .filter(k => !process.env[k])
@@ -233,13 +246,14 @@ try {
         const msg = await gmailFetch(
           `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
         )
+        const internalMs = Number(msg.internalDate)
         return {
           id: msg.id,
           threadId: msg.threadId,
           from: hdr(msg.payload?.headers, 'From'),
           subject: hdr(msg.payload?.headers, 'Subject'),
-          date: hdr(msg.payload?.headers, 'Date'),
-          internalDate: msg.internalDate,
+          date: toLocalISO(new Date(internalMs)),
+          _internalMs: internalMs,
           snippet: msg.snippet,
           labels: msg.labelIds,
         }
@@ -248,8 +262,9 @@ try {
       // keys off the Date header, which can drift from the real receipt time.
       // internalDate is Gmail's authoritative receipt timestamp (epoch ms).
       if (sinceMs !== null) {
-        messages = messages.filter(m => Number(m.internalDate) >= sinceMs)
+        messages = messages.filter(m => m._internalMs >= sinceMs)
       }
+      messages = messages.map(({ _internalMs, ...rest }) => rest)
       console.log(JSON.stringify({
         messages,
         resultSizeEstimate: sinceMs !== null ? messages.length : listData.resultSizeEstimate,
@@ -269,7 +284,7 @@ try {
         to: hdr(headers, 'To'),
         cc: hdr(headers, 'Cc'),
         subject: hdr(headers, 'Subject'),
-        date: hdr(headers, 'Date'),
+        date: toLocalISO(new Date(Number(msg.internalDate))),
         messageId: hdr(headers, 'Message-ID'),
         labels: msg.labelIds,
         body: extractBody(msg.payload),
@@ -326,7 +341,7 @@ try {
           id: msg.id,
           from: hdr(headers, 'From'),
           to: hdr(headers, 'To'),
-          date: hdr(headers, 'Date'),
+          date: toLocalISO(new Date(Number(msg.internalDate))),
           subject: hdr(headers, 'Subject'),
           labels: msg.labelIds,
           body: extractBody(msg.payload),

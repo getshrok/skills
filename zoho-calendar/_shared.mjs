@@ -237,6 +237,27 @@ function startOfDay(d) {
   return d
 }
 
+// Format a Date as ISO 8601 with the system's local timezone offset
+// (e.g. "2026-05-21T10:30:00-04:00"). Returns null for invalid dates.
+export function toLocalISO(d) {
+  if (!d || isNaN(d.getTime())) return null
+  const pad = (n, w = 2) => String(n).padStart(w, '0')
+  const tz = -d.getTimezoneOffset()
+  const sign = tz >= 0 ? '+' : '-'
+  const absTz = Math.abs(tz)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+         `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
+}
+
+// Convert an ISO-like string (with or without offset, or `Z`) to local ISO.
+// All-day "YYYY-MM-DD" passes through unchanged.
+function toLocalISOFromString(s) {
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  return toLocalISO(new Date(s))
+}
+
 /** Format a Date as Zoho's yyyyMMdd string */
 export function toZohoDate(d) {
   const y = d.getFullYear()
@@ -274,14 +295,16 @@ function parseSingleZohoDate(s) {
   return s
 }
 
-/** Normalize a Zoho event response into a clean object */
+/** Normalize a Zoho event response into a clean object.
+ *  start/end/createdAt/updatedAt are emitted as local-tz ISO (or YYYY-MM-DD
+ *  for all-day events). The `timezone` field preserves the original event tz. */
 export function normalizeEvent(e) {
   const dt = parseZohoDatetime(e.dateandtime)
   return {
     uid: e.uid,
     title: e.title ?? '',
-    start: dt.start,
-    end: dt.end,
+    start: toLocalISOFromString(dt.start),
+    end: toLocalISOFromString(dt.end),
     allDay: dt.allDay,
     timezone: dt.timezone,
     location: e.location ?? '',
@@ -291,7 +314,7 @@ export function normalizeEvent(e) {
     isRecurring: !!e.rrule || !!e.recurrenceid,
     etag: e.etag ?? null,
     calendarUid: e.caluid ?? '',
-    createdAt: parseSingleZohoDate(e.createdtime) ?? '',
-    updatedAt: parseSingleZohoDate(e.lastmodifiedtime) ?? '',
+    createdAt: toLocalISOFromString(parseSingleZohoDate(e.createdtime)) ?? '',
+    updatedAt: toLocalISOFromString(parseSingleZohoDate(e.lastmodifiedtime)) ?? '',
   }
 }

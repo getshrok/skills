@@ -22,7 +22,10 @@ Ask your Shrok to install a skill by name (mention this repo explicitly for best
 | word-docx | .docx files (create, read, edit) |
 | x | X / Twitter API (post tweets, threads, replies; read timelines on Basic+) |
 | zoho-calendar | Zoho Calendar REST API (read, create, update, delete events) |
+| zoho-cliq | Zoho Cliq REST API (read DMs/channels, send messages, poll since timestamp) |
+| zoho-desk | Zoho Desk REST API (list, search, read tickets with threads and comments) |
 | zoho-mail | Zoho Mail REST API (read, search, send) |
+| zoho-workdrive | Zoho WorkDrive REST API (search, browse, download, upload files) |
 
 ## Contributing
 

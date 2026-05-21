@@ -3,7 +3,7 @@
 // Usage: node search.mjs [--query <text>] [--folder <name>] [--limit 20] [--since <date>]
 
 import { parseArgs } from 'node:util'
-import { parseDateArg, makeClient, EXIT } from './_shared.mjs'
+import { parseDateArg, makeClient, toLocalISO, EXIT } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -42,7 +42,7 @@ async function searchFolder(folderName) {
         from:    msg.envelope.from?.[0]?.address ?? '',
         to:      (msg.envelope.to ?? []).map(a => a.address),
         subject: msg.envelope.subject ?? '',
-        date:    msg.envelope.date?.toISOString() ?? '',
+        date:    toLocalISO(msg.envelope.date) ?? '',
         snippet: '',
         flags:   [...(msg.flags ?? [])],
       })

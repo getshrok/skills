@@ -5,7 +5,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parseArgs } from 'node:util'
-import { makeClient, EXIT } from './_shared.mjs'
+import { makeClient, toLocalISO, EXIT } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -131,7 +131,7 @@ try {
     to:      (msg.envelope.to ?? []).map(a => a.address),
     cc:      (msg.envelope.cc ?? []).map(a => a.address),
     subject: msg.envelope.subject ?? '',
-    date:    msg.envelope.date?.toISOString() ?? '',
+    date:    toLocalISO(msg.envelope.date) ?? '',
     headers: {
       'message-id':  headers['message-id'] ?? '',
       'in-reply-to': headers['in-reply-to'] ?? '',

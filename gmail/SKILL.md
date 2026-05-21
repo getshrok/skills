@@ -7,6 +7,10 @@ description: "Read, search, send, and organize Gmail messages."
 
 - `gmail.mjs` — All Gmail operations. CLI for all Gmail operations. Run via bash: `node gmail.mjs <command> [options]`.
 
+## Time
+
+`--since` accepts ISO 8601 — a naked ISO timestamp like `2026-05-21T10:00:00` is interpreted in the system's local timezone; add `Z` or `±HH:MM` for an explicit offset. The `list` command filters by Gmail's authoritative `internalDate` (receipt time), so the cutoff is exact. All `date` fields in output are ISO 8601 with the local timezone offset (e.g. `2026-05-21T10:30:00-04:00`) — never raw UTC.
+
 ## Credentials
 
 Credentials are **required as environment variables** at invocation time — the script will immediately error without them.

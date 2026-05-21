@@ -15,7 +15,9 @@ Required scopes: `ZohoCliq.Messages.READ,ZohoCliq.Messages.CREATE,ZohoCliq.Chats
 
 ## Notes
 
-- `unread.mjs` fetches messages newer than a given `--since <ISO>` timestamp across all chats and channels. Pass the timestamp from the calling skill's tracking state.
+- `unread.mjs` fetches messages newer than a given `--since` timestamp across all chats and channels. Pass the timestamp from the calling skill's tracking state.
+- `messages.mjs` fetches messages from a single chat and supports `--since` for incremental polling, or `--before <messageId>` for older-message pagination.
+- `--since` accepts ISO 8601 (naked ISO is interpreted in the local timezone), `today`, `yesterday`, `next <weekday>`, or `N days/weeks/months ago`. All timestamps in script output use ISO 8601 with the local timezone offset (e.g. `2026-05-21T10:30:00-04:00`) — never raw UTC.
 - The Cliq REST API does not expose a read/unread flag for DM chats — only channels have `unread_count`. For chats, `unread.mjs` uses `last_modified_time` as a proxy (any chat with activity since `--since` is fetched).
 - `ZOHO_CLIQ_CHAT_ID` is the default for `send.mjs`. It accepts both numeric DM IDs and `CT_...` channel IDs.
-- `messages.mjs` and `chats.mjs` are available for one-off lookups by chat ID.
+- `chats.mjs` is available for one-off lookups.

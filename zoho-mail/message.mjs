@@ -5,7 +5,7 @@
 import { parseArgs } from 'node:util'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { join, basename } from 'node:path'
-import { EXIT, getAccessToken, zohoGet } from './_shared.mjs'
+import { EXIT, getAccessToken, zohoGet, toLocalISO } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -58,7 +58,7 @@ const out = {
   to:       m.toAddress   ? m.toAddress.split(',').map(a => a.trim())   : [],
   cc:       m.ccAddress   ? m.ccAddress.split(',').map(a => a.trim())   : [],
   subject:  m.subject ?? '(no subject)',
-  date:     m.receivedTime ? new Date(parseInt(m.receivedTime)).toISOString() : null,
+  date:     m.receivedTime ? toLocalISO(new Date(parseInt(m.receivedTime))) : null,
   headers: {
     'message-id': m.messageId ?? values.id,
     ...(m.inReplyTo  ? { 'in-reply-to': m.inReplyTo }  : {}),

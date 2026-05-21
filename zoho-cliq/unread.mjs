@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // unread.mjs — Fetch messages across all Cliq chats and channels since a given time.
-// Usage: node unread.mjs --since <ISO> [--limit N] [--help]
+// Usage: node unread.mjs --since <date> [--limit N] [--help]
 
 import { parseArgs } from 'node:util'
-import { EXIT, getAccessToken, cliqGet } from './_shared.mjs'
+import { EXIT, getAccessToken, cliqGet, parseDateArg, toLocalISO } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -15,24 +15,22 @@ const { values } = parseArgs({
 })
 
 if (values.help || !values.since) {
-  console.log(`Usage: node unread.mjs --since <ISO> [--limit N] [--help]
+  console.log(`Usage: node unread.mjs --since <date> [--limit N] [--help]
 
 Fetches messages across all Cliq chats and channels newer than the given timestamp.
-  --since   ISO timestamp to check from (required)
+  --since   When to check from (required). Accepts ISO 8601 (local timezone if no
+            offset given), "today", "yesterday", "next <weekday>", or "N days/weeks/months ago".
   --limit   Max conversations to scan per type (default: 50)
 
 Returns messages grouped by conversation. Empty array if nothing new.
+Timestamps in the output use ISO 8601 with the local timezone offset.
 The calling skill is responsible for tracking lastChecked in its own MEMORY.md.
 
 Exit codes: 0 success, 1 usage, 2 auth, 3 connection`)
   process.exit(values.help ? EXIT.OK : EXIT.USAGE)
 }
 
-const since = new Date(values.since)
-if (isNaN(since.getTime())) {
-  console.error(`Invalid --since value: "${values.since}"`)
-  process.exit(EXIT.USAGE)
-}
+const since = parseDateArg(values.since)
 
 const limit = String(parseInt(values.limit, 10) || 50)
 const token = await getAccessToken()
@@ -66,14 +64,19 @@ const results = await Promise.all(
     const data = await cliqGet(`/chats/${conv.chat_id}/messages?limit=${conv.msgLimit}`, token)
     const raw = data.data ?? data.messages ?? []
     const messages = raw
-      .map(m => ({
-        message_id: m.id ?? m.message_id,
-        sender:     m.sender?.name ?? m.sender_id ?? 'unknown',
-        time:       typeof m.time === 'number' ? new Date(m.time).toISOString() : m.time,
-        text:       m.content?.text ?? m.text ?? '',
-        type:       m.type ?? 'text',
-      }))
-      .filter(m => new Date(m.time) > since)
+      .map(m => {
+        const t = typeof m.time === 'number' ? new Date(m.time) : new Date(m.time)
+        return {
+          message_id: m.id ?? m.message_id,
+          sender:     m.sender?.name ?? m.sender_id ?? 'unknown',
+          time:       toLocalISO(t),
+          _t:         t,
+          text:       m.content?.text ?? m.text ?? '',
+          type:       m.type ?? 'text',
+        }
+      })
+      .filter(m => m._t > since)
+      .map(({ _t, ...rest }) => rest)
     return { chat_id: conv.chat_id, name: conv.name, type: conv.type, messages }
   })
 )

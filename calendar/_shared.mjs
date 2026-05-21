@@ -189,17 +189,64 @@ export function normalizeEventDetail(props, uid) {
   return base
 }
 
+// Format a Date as ISO 8601 with the system's local timezone offset.
+// (Exported as toLocalISO at the bottom of this module for use by callers.)
+function toLocalISO(d) {
+  if (!d || isNaN(d.getTime())) return null
+  const pad = (n, w = 2) => String(n).padStart(w, '0')
+  const tz = -d.getTimezoneOffset()
+  const sign = tz >= 0 ? '+' : '-'
+  const absTz = Math.abs(tz)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+         `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
+}
+
+// Resolve a wall-clock time in an arbitrary IANA timezone to its UTC instant.
+// Two-pass refinement handles DST transitions correctly via Intl.
+function utcFromTzWallClock(year, mon, day, hh, mm, ss, tzid) {
+  let utc = Date.UTC(year, mon - 1, day, hh, mm, ss)
+  for (let i = 0; i < 2; i++) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzid, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(new Date(utc))
+    const p = {}
+    for (const x of parts) p[x.type] = x.value
+    const got = Date.UTC(+p.year, +p.month - 1, +p.day,
+                        p.hour === '24' ? 0 : +p.hour, +p.minute, +p.second)
+    const drift = Date.UTC(year, mon - 1, day, hh, mm, ss) - got
+    if (drift === 0) break
+    utc += drift
+  }
+  return utc
+}
+
 function formatICalDate(value, tzid) {
   if (!value) return null
+  // All-day: YYYYMMDD → YYYY-MM-DD
   if (/^\d{8}$/.test(value)) {
     return `${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6,8)}`
   }
+  // UTC: 20260407T110000Z → local ISO
   if (value.endsWith('Z')) {
-    return value.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, '$1-$2-$3T$4:$5:$6Z')
+    const iso = value.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
+                              '$1-$2-$3T$4:$5:$6Z')
+    return toLocalISO(new Date(iso))
   }
-  const s = value.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, '$1-$2-$3T$4:$5:$6')
-  return tzid ? `${s} (${tzid})` : s
+  // Floating: 20260407T070000 (interpret as in tzid if given, else system local)
+  const m = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/)
+  if (!m) return value
+  if (tzid) {
+    const utc = utcFromTzWallClock(+m[1], +m[2], +m[3], +m[4], +m[5], +m[6], tzid)
+    return toLocalISO(new Date(utc))
+  }
+  // No tzid: the wall clock is already in the system's local time
+  return toLocalISO(new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]))
 }
+
+export { toLocalISO }
 
 // ─── iCal generation ──────────────────────────────────────────────────────────
 

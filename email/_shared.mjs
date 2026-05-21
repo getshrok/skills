@@ -84,3 +84,16 @@ function startOfDay(d) {
   d.setHours(0, 0, 0, 0)
   return d
 }
+
+// Format a Date as ISO 8601 with the system's local timezone offset
+// (e.g. "2026-05-21T10:30:00-04:00"). Returns null for invalid dates.
+export function toLocalISO(d) {
+  if (!d || isNaN(d.getTime())) return null
+  const pad = (n, w = 2) => String(n).padStart(w, '0')
+  const tz = -d.getTimezoneOffset()
+  const sign = tz >= 0 ? '+' : '-'
+  const absTz = Math.abs(tz)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+         `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
+}

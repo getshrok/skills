@@ -3,7 +3,7 @@
 // Usage: node read.mjs [--folder INBOX] [--unread] [--limit 20] [--since <date>] [--from <addr>] [--subject <text>]
 
 import { parseArgs } from 'node:util'
-import { parseDateArg, makeClient, EXIT } from './_shared.mjs'
+import { parseDateArg, makeClient, toLocalISO, EXIT } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -47,7 +47,7 @@ try {
         from:    msg.envelope.from?.[0]?.address ?? '',
         to:      (msg.envelope.to ?? []).map(a => a.address),
         subject: msg.envelope.subject ?? '',
-        date:    msg.envelope.date?.toISOString() ?? '',
+        date:    toLocalISO(msg.envelope.date) ?? '',
         snippet: '',
         flags:   [...(msg.flags ?? [])],
       })

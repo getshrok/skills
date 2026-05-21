@@ -1,4 +1,4 @@
-// _shared.mjs — Shared utilities for zoho-cliq scripts.
+// _shared.mjs — Shared utilities for zoho-desk scripts.
 
 export const EXIT = {
   OK:         0,
@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const CACHE_PATH = join(tmpdir(), 'zoho-cliq-token.json')
+const CACHE_PATH = join(tmpdir(), 'zoho-desk-token.json')
 
 function readCachedToken() {
   try {
@@ -32,10 +32,10 @@ export async function getAccessToken() {
   const cached = readCachedToken()
   if (cached) return cached
 
-  const { ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env
-  if (!ZOHO_CLIENT_ID)     { console.error('ZOHO_CLIENT_ID is not set');     process.exit(EXIT.AUTH) }
-  if (!ZOHO_CLIENT_SECRET) { console.error('ZOHO_CLIENT_SECRET is not set'); process.exit(EXIT.AUTH) }
-  if (!ZOHO_REFRESH_TOKEN) { console.error('ZOHO_REFRESH_TOKEN is not set'); process.exit(EXIT.AUTH) }
+  const { ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_DESK_REFRESH_TOKEN } = process.env
+  if (!ZOHO_CLIENT_ID)             { console.error('ZOHO_CLIENT_ID is not set');             process.exit(EXIT.AUTH) }
+  if (!ZOHO_CLIENT_SECRET)         { console.error('ZOHO_CLIENT_SECRET is not set');         process.exit(EXIT.AUTH) }
+  if (!ZOHO_DESK_REFRESH_TOKEN)    { console.error('ZOHO_DESK_REFRESH_TOKEN is not set');    process.exit(EXIT.AUTH) }
 
   const res = await fetch('https://accounts.zoho.com/oauth/v2/token', {
     method: 'POST',
@@ -44,7 +44,7 @@ export async function getAccessToken() {
       grant_type:    'refresh_token',
       client_id:     ZOHO_CLIENT_ID,
       client_secret: ZOHO_CLIENT_SECRET,
-      refresh_token: ZOHO_REFRESH_TOKEN,
+      refresh_token: ZOHO_DESK_REFRESH_TOKEN,
     }),
   })
 
@@ -62,6 +62,12 @@ export async function getAccessToken() {
 
   writeCachedToken(data.access_token, data.expires_in ?? 3600)
   return data.access_token
+}
+
+export function requireOrgId() {
+  const id = process.env.ZOHO_DESK_ORG_ID
+  if (!id) { console.error('ZOHO_DESK_ORG_ID is not set'); process.exit(EXIT.AUTH) }
+  return id
 }
 
 const DAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
@@ -119,13 +125,16 @@ export function toLocalISO(d) {
          `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
 }
 
-const BASE = 'https://cliq.zoho.com/api/v2'
+const BASE = 'https://desk.zoho.com/api/v1'
 
-export async function cliqGet(path, token) {
+export async function deskGet(path, token, orgId) {
   let res
   try {
     res = await fetch(`${BASE}${path}`, {
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      headers: {
+        Authorization: `Zoho-oauthtoken ${token}`,
+        orgId,
+      },
     })
   } catch (err) {
     console.error(`Connection error: ${err.message}`)
@@ -144,34 +153,7 @@ export async function cliqGet(path, token) {
     console.error(`API error (${res.status}): ${text}`)
     process.exit(EXIT.CONNECTION)
   }
-  return res.json()
-}
-
-export async function cliqPost(path, token, body) {
-  let res
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Zoho-oauthtoken ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-  } catch (err) {
-    console.error(`Connection error: ${err.message}`)
-    process.exit(EXIT.CONNECTION)
-  }
-  if (res.status === 401 || res.status === 403) {
-    console.error(`Auth error (${res.status}) — check credentials and scopes`)
-    process.exit(EXIT.AUTH)
-  }
-  if (!res.ok) {
-    const text = await res.text()
-    console.error(`API error (${res.status}): ${text}`)
-    process.exit(EXIT.CONNECTION)
-  }
-  if (res.status === 204) return {}
+  if (res.status === 204) return { data: [] }
   const text = await res.text()
-  return text ? JSON.parse(text) : {}
+  return text ? JSON.parse(text) : { data: [] }
 }

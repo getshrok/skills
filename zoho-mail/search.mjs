@@ -3,7 +3,7 @@
 // Usage: node search.mjs --query <text> [--limit <n>] [--since <date>]
 
 import { parseArgs } from 'node:util'
-import { EXIT, getAccessToken, zohoGet, parseDateArg } from './_shared.mjs'
+import { EXIT, getAccessToken, zohoGet, parseDateArg, toLocalISO } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -44,7 +44,7 @@ const out = messages.map(m => ({
   from:     m.fromAddress,
   to:       m.toAddress ? m.toAddress.split(',').map(a => a.trim().replace(/&lt;/g,'<').replace(/&gt;/g,'>')) : [],
   subject:  m.subject ?? '(no subject)',
-  date:     new Date(parseInt(m.receivedTime)).toISOString(),
+  date:     toLocalISO(new Date(parseInt(m.receivedTime))),
   snippet:  m.summary ?? '',
   unread:   !m.isRead,
 }))
