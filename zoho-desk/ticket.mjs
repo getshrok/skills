@@ -33,7 +33,9 @@ const token = await getAccessToken()
 const orgId = requireOrgId()
 
 const [ticketData, threadsData, commentsData] = await Promise.all([
-  deskGet(`/tickets/${values.id}`, token, orgId),
+  // include=contacts,assignee mirrors tickets.mjs; without it the API omits
+  // the embedded objects and assignee/contact would render as null even when set.
+  deskGet(`/tickets/${values.id}?include=contacts,assignee`, token, orgId),
   values.threads  ? deskGet(`/tickets/${values.id}/threads?limit=20`, token, orgId)  : null,
   values.comments ? deskGet(`/tickets/${values.id}/comments?limit=20`, token, orgId) : null,
 ])
