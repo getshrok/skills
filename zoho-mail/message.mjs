@@ -12,12 +12,24 @@ const { values } = parseArgs({
     id:                 { type: 'string' },
     folder:             { type: 'string' },
     'save-attachments': { type: 'string' },
+    help:               { type: 'boolean' },
   },
   strict: true,
 })
 
-if (!values.id)     { console.error('--id is required');     process.exit(EXIT.USAGE) }
-if (!values.folder) { console.error('--folder is required'); process.exit(EXIT.USAGE) }
+if (values.help || !values.id || !values.folder) {
+  console.log(`Usage: node message.mjs --id <messageId> --folder <folderId> [--save-attachments <dir>] [--help]
+
+Fetches full content of a single Zoho Mail message.
+  --id                Message ID (required)
+  --folder            Folder ID containing the message (required)
+  --save-attachments  Directory to save attachments to (optional)
+
+Timestamps in the output use ISO 8601 with the local timezone offset.
+
+Exit codes: 0 success, 1 usage, 2 auth, 3 connection`)
+  process.exit(values.help ? EXIT.OK : EXIT.USAGE)
+}
 
 const token = await getAccessToken()
 

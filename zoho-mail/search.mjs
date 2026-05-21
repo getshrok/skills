@@ -10,11 +10,26 @@ const { values } = parseArgs({
     query:  { type: 'string' },
     limit:  { type: 'string', default: '20' },
     since:  { type: 'string' },
+    help:   { type: 'boolean' },
   },
   strict: true,
 })
 
-if (!values.query) { console.error('--query is required'); process.exit(EXIT.USAGE) }
+if (values.help || !values.query) {
+  console.log(`Usage: node search.mjs --query <text> [--limit N] [--since <date>] [--help]
+
+Full-text search across Zoho Mail (includes archived messages, unlike read.mjs).
+  --query   Search text (required)
+  --limit   Max results (default: 20)
+  --since   Only return messages since this time. Accepts ISO 8601
+            (local timezone if no offset given), "today", "yesterday",
+            "next <weekday>", or "N days/weeks/months ago".
+
+Timestamps in the output use ISO 8601 with the local timezone offset.
+
+Exit codes: 0 success, 1 usage, 2 auth, 3 connection`)
+  process.exit(values.help ? EXIT.OK : EXIT.USAGE)
+}
 
 const limit = parseInt(values.limit, 10)
 if (isNaN(limit) || limit < 1) { console.error('--limit must be a positive integer'); process.exit(EXIT.USAGE) }
