@@ -2,6 +2,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 
 const SKILL_DIR = import.meta.dirname
 const TOKEN_CACHE = join(SKILL_DIR, '.token-cache')
@@ -92,7 +93,11 @@ function saveTokenCache(cache) {
 async function getAccessToken() {
   const { clientId, clientSecret, refreshToken } = requireCredentials()
   const cache = loadTokenCache()
-  const entry = cache[clientId]
+  // Key by a hash of client_id + refresh_token, NOT client_id alone: two accounts
+  // can share one client_id but use different (e.g. different-scoped) refresh
+  // tokens, and must not collide on the cached access token.
+  const key = createHash('sha256').update(`${clientId}:${refreshToken}`).digest('hex').slice(0, 16)
+  const entry = cache[key]
   if (entry?.access_token && entry?.expiry && Date.now() < entry.expiry - 60_000) {
     return entry.access_token
   }
@@ -111,7 +116,7 @@ async function getAccessToken() {
     throw new Error(`Token refresh failed (${resp.status}): ${err}`)
   }
   const data = await resp.json()
-  cache[clientId] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
+  cache[key] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
   saveTokenCache(cache)
   return data.access_token
 }
@@ -343,7 +348,8 @@ try {
         process.exit(1)
       }
       const cache = loadTokenCache()
-      cache[clientId] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
+      const exKey = createHash('sha256').update(`${clientId}:${data.refresh_token}`).digest('hex').slice(0, 16)
+      cache[exKey] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
       saveTokenCache(cache)
       // If an account was selected, write the refresh token straight into the store
       // so it never has to be copied by hand.

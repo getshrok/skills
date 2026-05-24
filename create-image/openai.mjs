@@ -1,9 +1,74 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
-import { basename, extname } from 'node:path'
+import { basename, extname, join } from 'node:path'
 
 const OPENAI_API = 'https://api.openai.com/v1'
+
+const SKILL_DIR = import.meta.dirname
+const CRED_STORE = process.env.OPENAI_CRED_STORE || join(SKILL_DIR, '.openai-credentials.json')
+
+// Selected account alias (from --account / -a). The model passes only the alias.
+let ACCOUNT = null
+
+// ── Credentials store ─────────────────────────────────────────────────────────
+// API keys live here, keyed by short account alias, so the agent references an
+// account by name instead of pasting the key. See the committed
+// .openai-credentials.json for the example shape:
+//   { "accounts": { "<alias>": { label, api_key } }, "default": "<alias>|null" }
+function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch { return { accounts: {}, default: null } }
+}
+function saveCredStore(store) { writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n') }
+function fingerprint(s) { if (!s) return null; return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})` }
+function storeKey() {
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  return acct ? (store.accounts[acct]?.api_key ?? null) : null
+}
+function manageCreds(argv) {
+  const sub = argv[0]
+  const store = loadCredStore()
+  if (sub === 'list' || !sub) {
+    const accounts = Object.entries(store.accounts).map(([alias, e]) => ({ account: alias, default: store.default === alias, label: e.label ?? null, api_key: fingerprint(e.api_key) }))
+    console.log(JSON.stringify({ accounts, default: store.default }, null, 2)); return
+  }
+  if (sub === 'set') {
+    const alias = argv[1]
+    if (!alias) { console.error('Usage: openai.mjs creds set <alias> [--label L] [--api-key KEY] [--default] [--stdin]'); process.exit(1) }
+    const entry = store.accounts[alias] ?? {}
+    let useStdin = false, makeDefault = false
+    for (let i = 2; i < argv.length; i++) {
+      if (argv[i] === '--label') entry.label = argv[++i]
+      else if (argv[i] === '--api-key') entry.api_key = argv[++i]
+      else if (argv[i] === '--stdin') useStdin = true
+      else if (argv[i] === '--default') makeDefault = true
+    }
+    if (useStdin) { const blob = JSON.parse(readFileSync(0, 'utf8')); for (const k of ['label', 'api_key']) if (blob[k] != null) entry[k] = blob[k] }
+    store.accounts[alias] = entry
+    if (makeDefault || store.default == null) store.default = alias
+    saveCredStore(store)
+    console.log(JSON.stringify({ ok: true, account: alias, default: store.default, label: entry.label ?? null, api_key: fingerprint(entry.api_key) }, null, 2)); return
+  }
+  if (sub === 'set-default') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+    store.default = alias; saveCredStore(store); console.log(JSON.stringify({ ok: true, default: alias })); return
+  }
+  if (sub === 'remove' || sub === 'rm') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+    delete store.accounts[alias]; if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+    saveCredStore(store); console.log(JSON.stringify({ ok: true, removed: alias, default: store.default })); return
+  }
+  console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`); process.exit(1)
+}
 
 function parseArgs(args) {
   const opts = {}
@@ -20,7 +85,8 @@ function parseArgs(args) {
 }
 
 function getKey(opts) {
-  return opts.key || process.env['OPENAI_API_KEY']
+  // Normal path: stored key via --account. --key flag and OPENAI_API_KEY env are escape hatches.
+  return opts.key || process.env['OPENAI_API_KEY'] || storeKey()
 }
 
 async function generate(key, prompt, opts) {
@@ -93,12 +159,31 @@ async function edit(key, imagePath, prompt, opts) {
   throw new Error('No image data in response')
 }
 
-const [cmd, ...args] = process.argv.slice(2)
+const [cmd, ...rawArgs] = process.argv.slice(2)
+
+// Pull --account / -a out so per-command parsing doesn't see it.
+const args = []
+for (let i = 0; i < rawArgs.length; i++) {
+  const a = rawArgs[i]
+  if (a === '--account' || a === '-a') ACCOUNT = rawArgs[++i]
+  else if (a.startsWith('--account=')) ACCOUNT = a.slice('--account='.length)
+  else args.push(a)
+}
+
+if (cmd === 'creds') { manageCreds(args); process.exit(0) }
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
-  console.log(`Usage: openai.mjs <command> [options]
+  console.log(`Usage: openai.mjs <command> [--account <alias>] [options]
 
-Pass API key via --key or OPENAI_API_KEY env var.
+API key is stored per-account in .openai-credentials.json and selected with --account <alias>.
+You never pass the key for normal use. Manage with the 'creds' command.
+(Escape hatches: --key <KEY> flag, or OPENAI_API_KEY env var, both override the store.)
+
+Credential management:
+  creds list                              List accounts (masked key fingerprints)
+  creds set <alias> [--label L] [--api-key KEY] [--default]   (or --stdin for JSON)
+  creds set-default <alias>
+  creds remove <alias>
 
 Commands:
   create --prompt TEXT [--out PATH] [--model M] [--size S] [--quality Q]

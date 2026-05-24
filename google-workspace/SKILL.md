@@ -7,22 +7,41 @@ description: Work with Google Drive, Docs, and Sheets — list, read, create, ed
 
 - `gw.mjs` — All Google Workspace operations. CLI for all Google Workspace operations. Run via bash: `node gw.mjs <command> [options]`.
 
-## First-time setup
+## Credentials & accounts
 
-Uses the same Google OAuth2 flow as the Gmail skill. If Gmail is already configured with the same Google account, you can reuse the same Client ID and Secret — just need a new token with broader scopes.
+Secrets are **stored in `.google-workspace-credentials.json`** (chmod 600), keyed by a short
+account alias. **You never type secrets for normal use** — select an account with `--account
+<alias>` (or `-a`); the script loads the secret itself. The committed
+`.google-workspace-credentials.json` shows the **example shape** — use it, don't invent your own.
 
-1. Write `GW_CLIENT_ID` and `GW_CLIENT_SECRET` to MEMORY.md (or reuse Gmail's if same Google Cloud project)
-2. Run `gw.mjs auth-url` — send the URL to the user to visit
+```bash
+node $SHROK_SKILLS_DIR/google-workspace/gw.mjs files --account ashley --max 20
+```
+
+Required scopes: `https://www.googleapis.com/auth/drive`, `.../documents`, `.../spreadsheets`.
+You can reuse the Gmail/Calendar Google client ID & secret, but the **refresh token must be minted
+with these workspace scopes** (a calendar/gmail-scoped token will 403 with
+`ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
+
+### Managing credentials
+
+```bash
+node $SHROK_SKILLS_DIR/google-workspace/gw.mjs creds list                  # masked fingerprints, no secrets
+node $SHROK_SKILLS_DIR/google-workspace/gw.mjs creds set <alias> --email E --client-id ID --client-secret S --refresh-token T
+node $SHROK_SKILLS_DIR/google-workspace/gw.mjs creds set <alias> --stdin   # JSON on stdin
+node $SHROK_SKILLS_DIR/google-workspace/gw.mjs creds set-default <alias>
+node $SHROK_SKILLS_DIR/google-workspace/gw.mjs creds remove <alias>
+```
+
+### First-time OAuth (mints the refresh token without copying it)
+
+1. `gw.mjs creds set <alias> --client-id ... --client-secret ...` (reuse Gmail's client if same project)
+2. `gw.mjs auth-url --account <alias>` — send the URL to the user to visit
 3. User provides the code from the redirect URL
-4. Run `gw.mjs auth-exchange <code>` — write the returned `refresh_token` as `GW_REFRESH_TOKEN` to MEMORY.md
+4. `gw.mjs auth-exchange <code> --account <alias>` — writes the `refresh_token` straight into the store
 
-## MEMORY.md format
-
-```
-GW_CLIENT_ID=...
-GW_CLIENT_SECRET=...
-GW_REFRESH_TOKEN=...
-```
+**Escape hatch:** if `GW_CLIENT_ID`+`GW_CLIENT_SECRET`+`GW_REFRESH_TOKEN` env vars are all set, they
+override the store (one-off testing).
 
 ## Reading Google Docs and Sheets
 

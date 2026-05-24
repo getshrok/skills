@@ -1,6 +1,8 @@
 // _shared.mjs — Shared utilities for email scripts.
 
 import { ImapFlow } from 'imapflow'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const EXIT = {
   OK:         0,
@@ -10,22 +12,113 @@ export const EXIT = {
   NOT_FOUND:  4,
 }
 
-export function makeClient() {
-  const {
-    IMAP_HOST, IMAP_PORT, IMAP_USER, IMAP_PASS,
-  } = process.env
+const SKILL_DIR = import.meta.dirname
+const CRED_STORE = process.env.EMAIL_CRED_STORE || join(SKILL_DIR, '.email-credentials.json')
 
-  if (!IMAP_HOST) { console.error('IMAP_HOST is not set'); process.exit(EXIT.AUTH) }
-  if (!IMAP_USER) { console.error('IMAP_USER is not set'); process.exit(EXIT.AUTH) }
-  if (!IMAP_PASS) { console.error('IMAP_PASS is not set'); process.exit(EXIT.AUTH) }
+// ── Credentials store ─────────────────────────────────────────────────────────
+// Secrets (imap_pass/smtp_pass) and per-account IMAP/SMTP config live here, keyed
+// by short account alias, so the agent references an account by name (--account
+// <alias>) instead of pasting passwords. See .email-credentials.json for shape:
+//   { "accounts": { "<alias>": { label, imap_host, imap_port, imap_user, imap_pass,
+//                                 smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from } }, "default": ... }
+export function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch { return { accounts: {}, default: null } }
+}
+export function saveCredStore(store) { writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n') }
+export function fingerprint(s) { if (!s) return null; return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})` }
+
+// Extract --account/-a from argv at load (before entry scripts parse args with
+// strict parsers), storing the value and removing it from argv.
+const SELECTED_ACCOUNT = (() => {
+  const a = process.argv
+  for (let i = 2; i < a.length; i++) {
+    if ((a[i] === '--account' || a[i] === '-a') && a[i + 1] !== undefined) { const v = a[i + 1]; a.splice(i, 2); return v }
+    if (a[i].startsWith('--account=')) { const v = a[i].slice('--account='.length); a.splice(i, 1); return v }
+  }
+  return process.env.EMAIL_ACCOUNT || null
+})()
+
+function resolveAccountSoft() {
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = SELECTED_ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  if (!acct || !store.accounts[acct]) return { acct: null, entry: {}, aliases }
+  return { acct, entry: store.accounts[acct], aliases }
+}
+
+// Resolved-account field with env fallback.
+export function accountField(name, envVar) {
+  const { entry } = resolveAccountSoft()
+  return entry[name] ?? (envVar ? process.env[envVar] : null) ?? null
+}
+
+export function makeClient() {
+  const host = accountField('imap_host', 'IMAP_HOST')
+  const user = accountField('imap_user', 'IMAP_USER')
+  const pass = accountField('imap_pass', 'IMAP_PASS')
+  if (!host) { console.error('No imap_host. Set with: node creds.mjs set <alias> --imap-host ... (or IMAP_HOST env)'); process.exit(EXIT.AUTH) }
+  if (!user) { console.error('No imap_user. Set with: node creds.mjs set <alias> --imap-user ... (or IMAP_USER env)'); process.exit(EXIT.AUTH) }
+  if (!pass) { console.error('No imap_pass. Set with: node creds.mjs set <alias> --imap-pass ... (or IMAP_PASS env)'); process.exit(EXIT.AUTH) }
 
   return new ImapFlow({
-    host: IMAP_HOST,
-    port: parseInt(IMAP_PORT ?? '993', 10),
+    host,
+    port: parseInt(accountField('imap_port', 'IMAP_PORT') ?? '993', 10),
     secure: true,
-    auth: { user: IMAP_USER, pass: IMAP_PASS },
+    auth: { user, pass },
     logger: false,
   })
+}
+
+// ── Credential management (CLI surface, used by creds.mjs) ─────────────────────
+export function manageCreds(argv) {
+  const sub = argv[0]
+  const store = loadCredStore()
+  const secretFields = ['imap_pass', 'smtp_pass']
+  const plainFields = ['label', 'imap_host', 'imap_port', 'imap_user', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_from']
+  const view = (e) => {
+    const o = {}
+    for (const k of plainFields) o[k] = e[k] ?? null
+    for (const k of secretFields) o[k] = fingerprint(e[k])
+    return o
+  }
+  if (sub === 'list' || !sub) {
+    const accounts = Object.entries(store.accounts).map(([alias, e]) => ({ account: alias, default: store.default === alias, ...view(e) }))
+    console.log(JSON.stringify({ accounts, default: store.default }, null, 2)); return
+  }
+  if (sub === 'set') {
+    const alias = argv[1]
+    if (!alias) { console.error('Usage: creds.mjs set <alias> [--imap-host H] [--imap-port P] [--imap-user U] [--imap-pass P] [--smtp-host H] [--smtp-port P] [--smtp-user U] [--smtp-pass P] [--smtp-from ADDR] [--label L] [--default] [--stdin]'); process.exit(EXIT.USAGE) }
+    const entry = store.accounts[alias] ?? {}
+    let useStdin = false, makeDefault = false
+    const flag = { '--label': 'label', '--imap-host': 'imap_host', '--imap-port': 'imap_port', '--imap-user': 'imap_user', '--imap-pass': 'imap_pass', '--smtp-host': 'smtp_host', '--smtp-port': 'smtp_port', '--smtp-user': 'smtp_user', '--smtp-pass': 'smtp_pass', '--smtp-from': 'smtp_from' }
+    for (let i = 2; i < argv.length; i++) {
+      if (flag[argv[i]]) entry[flag[argv[i]]] = argv[++i]
+      else if (argv[i] === '--stdin') useStdin = true
+      else if (argv[i] === '--default') makeDefault = true
+    }
+    if (useStdin) { const blob = JSON.parse(readFileSync(0, 'utf8')); for (const k of [...secretFields, ...plainFields]) if (blob[k] != null) entry[k] = blob[k] }
+    store.accounts[alias] = entry
+    if (makeDefault || store.default == null) store.default = alias
+    saveCredStore(store)
+    console.log(JSON.stringify({ ok: true, account: alias, default: store.default, ...view(entry) }, null, 2)); return
+  }
+  if (sub === 'set-default') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(EXIT.USAGE) }
+    store.default = alias; saveCredStore(store); console.log(JSON.stringify({ ok: true, default: alias })); return
+  }
+  if (sub === 'remove' || sub === 'rm') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(EXIT.USAGE) }
+    delete store.accounts[alias]; if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+    saveCredStore(store); console.log(JSON.stringify({ ok: true, removed: alias, default: store.default })); return
+  }
+  console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`); process.exit(EXIT.USAGE)
 }
 
 const DAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
