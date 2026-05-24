@@ -2,10 +2,11 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 
 const SKILL_DIR = import.meta.dirname
-const MEMORY_FILE = join(SKILL_DIR, 'MEMORY.md')
 const TOKEN_CACHE = join(SKILL_DIR, '.token-cache')
+const CRED_STORE = process.env.GW_CRED_STORE || join(SKILL_DIR, '.google-workspace-credentials.json')
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const SCOPES = [
@@ -20,17 +21,49 @@ const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3'
 const DOCS = 'https://docs.googleapis.com/v1'
 const SHEETS = 'https://sheets.googleapis.com/v4'
 
-function loadMemory() {
-  if (!existsSync(MEMORY_FILE)) return {}
-  const result = {}
-  for (const line of readFileSync(MEMORY_FILE, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq === -1) continue
-    result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim()
+// Selected account alias (set from --account / -a). The model only passes this
+// short alias; secrets stay inside the script.
+let ACCOUNT = null
+
+// ── Credentials store ─────────────────────────────────────────────────────────
+// Secrets live here, keyed by short account alias. See the committed
+// .google-workspace-credentials.json for the example shape:
+//   { "accounts": { "<alias>": { email, client_id, client_secret, refresh_token } }, "default": "<alias>|null" }
+function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch {
+    return { accounts: {}, default: null }
   }
-  return result
+}
+function saveCredStore(store) {
+  writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n')
+}
+function fingerprint(s) {
+  if (!s) return null
+  return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})`
+}
+function resolveAccount() {
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  if (!acct) throw new Error(`No account selected. Pass --account <alias>. Available: ${aliases.join(', ') || '(none — add one with: gw.mjs creds set <alias> ...)'}`)
+  const entry = store.accounts[acct]
+  if (!entry) throw new Error(`Unknown account '${acct}'. Available: ${aliases.join(', ') || '(none)'}`)
+  return { acct, entry }
+}
+function requireCredentials() {
+  // Env-var override: one-off escape hatch. Normal path is the store via --account.
+  if (process.env.GW_CLIENT_ID && process.env.GW_CLIENT_SECRET && process.env.GW_REFRESH_TOKEN) {
+    return { clientId: process.env.GW_CLIENT_ID, clientSecret: process.env.GW_CLIENT_SECRET, refreshToken: process.env.GW_REFRESH_TOKEN }
+  }
+  const { acct, entry } = resolveAccount()
+  const missing = ['client_id', 'client_secret', 'refresh_token'].filter(k => !entry[k])
+  if (missing.length) throw new Error(`Account '${acct}' is missing: ${missing.join(', ')}. Set with: gw.mjs creds set ${acct} --client-id ... --client-secret ... --refresh-token ...`)
+  return { clientId: entry.client_id, clientSecret: entry.client_secret, refreshToken: entry.refresh_token }
 }
 
 function loadTokenCache() {
@@ -41,21 +74,24 @@ function saveTokenCache(cache) {
 }
 
 async function getAccessToken() {
-  const mem = loadMemory()
-  if (!mem.GW_REFRESH_TOKEN) throw new Error('No GW_REFRESH_TOKEN in MEMORY.md. Complete OAuth setup first.')
+  const { clientId, clientSecret, refreshToken } = requireCredentials()
   const cache = loadTokenCache()
-  if (cache.access_token && cache.expiry && Date.now() < cache.expiry - 60_000) return cache.access_token
+  // Key by hash of client_id + refresh_token so accounts never collide on cache.
+  const key = createHash('sha256').update(`${clientId}:${refreshToken}`).digest('hex').slice(0, 16)
+  const entry = cache[key]
+  if (entry?.access_token && entry?.expiry && Date.now() < entry.expiry - 60_000) return entry.access_token
   const resp = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: mem.GW_CLIENT_ID, client_secret: mem.GW_CLIENT_SECRET,
-      refresh_token: mem.GW_REFRESH_TOKEN, grant_type: 'refresh_token',
+      client_id: clientId, client_secret: clientSecret,
+      refresh_token: refreshToken, grant_type: 'refresh_token',
     }),
   })
   if (!resp.ok) throw new Error(`Token refresh failed (${resp.status}): ${await resp.text()}`)
   const data = await resp.json()
-  saveTokenCache({ access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 })
+  cache[key] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
+  saveTokenCache(cache)
   return data.access_token
 }
 
@@ -82,16 +118,34 @@ const EXPORT_MIMES = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
-const [cmd, ...args] = process.argv.slice(2)
+const [cmd, ...rawArgs] = process.argv.slice(2)
+
+// Pull --account / -a out so per-command parsing doesn't see it.
+const args = []
+for (let i = 0; i < rawArgs.length; i++) {
+  const a = rawArgs[i]
+  if (a === '--account' || a === '-a') ACCOUNT = rawArgs[++i]
+  else if (a.startsWith('--account=')) ACCOUNT = a.slice('--account='.length)
+  else args.push(a)
+}
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
-  console.log(`Usage: gw.mjs <command> [options]
+  console.log(`Usage: gw.mjs <command> [--account <alias>] [options]
 
-Reads credentials from MEMORY.md (GW_CLIENT_ID, GW_CLIENT_SECRET, GW_REFRESH_TOKEN).
+Credentials are stored per-account in .google-workspace-credentials.json and selected with
+--account <alias> (or -a). You never pass secrets for normal use. Manage with 'creds' below.
+(Escape hatch: GW_CLIENT_ID/SECRET/REFRESH_TOKEN env vars override the store if all set.)
+
+Credential management:
+  creds list                              List accounts (emails + masked fingerprints; no secrets)
+  creds set <alias> [--email E] [--client-id ID] [--client-secret S] [--refresh-token T] [--default]
+  creds set <alias> --stdin               Read a JSON {email,client_id,client_secret,refresh_token} from stdin
+  creds set-default <alias>
+  creds remove <alias>
 
 Auth:
-  auth-url                                Print OAuth authorization URL
-  auth-exchange <code>                    Exchange auth code, print refresh token
+  auth-url [--account A]                   Print OAuth authorization URL (client id from the account)
+  auth-exchange <code> [--account A]       Exchange auth code; with --account, store the refresh token
 
 Drive:
   files [--query Q] [--max N]             List/search files
@@ -122,12 +176,56 @@ try {
   const { opts, positional } = parseArgs(args)
 
   switch (cmd) {
+    // ── Credential management ───────────────────────────────────────────────
+    case 'creds': {
+      const sub = positional[0]
+      const store = loadCredStore()
+      if (sub === 'list' || !sub) {
+        const accounts = Object.entries(store.accounts).map(([alias, e]) => ({
+          account: alias, email: e.email ?? null, default: store.default === alias,
+          client_id: fingerprint(e.client_id), client_secret: fingerprint(e.client_secret), refresh_token: fingerprint(e.refresh_token),
+        }))
+        console.log(JSON.stringify({ accounts, default: store.default }, null, 2))
+      } else if (sub === 'set') {
+        const alias = positional[1]
+        if (!alias) { console.error('Usage: gw.mjs creds set <alias> [--email E] [--client-id ID] [--client-secret S] [--refresh-token T] [--default] [--stdin]'); process.exit(1) }
+        const entry = store.accounts[alias] ?? {}
+        if (opts.email !== undefined) entry.email = opts.email
+        if (opts['client-id'] !== undefined) entry.client_id = opts['client-id']
+        if (opts['client-secret'] !== undefined) entry.client_secret = opts['client-secret']
+        if (opts['refresh-token'] !== undefined) entry.refresh_token = opts['refresh-token']
+        if (opts.stdin !== undefined || args.includes('--stdin')) {
+          const blob = JSON.parse(readFileSync(0, 'utf8'))
+          for (const k of ['email', 'client_id', 'client_secret', 'refresh_token']) if (blob[k] != null) entry[k] = blob[k]
+        }
+        store.accounts[alias] = entry
+        if (opts.default !== undefined || args.includes('--default') || store.default == null) store.default = alias
+        saveCredStore(store)
+        console.log(JSON.stringify({ ok: true, account: alias, default: store.default, email: entry.email ?? null,
+          client_id: fingerprint(entry.client_id), client_secret: fingerprint(entry.client_secret), refresh_token: fingerprint(entry.refresh_token) }, null, 2))
+      } else if (sub === 'set-default') {
+        const alias = positional[1]
+        if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+        store.default = alias; saveCredStore(store); console.log(JSON.stringify({ ok: true, default: alias }))
+      } else if (sub === 'remove' || sub === 'rm') {
+        const alias = positional[1]
+        if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+        delete store.accounts[alias]
+        if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+        saveCredStore(store); console.log(JSON.stringify({ ok: true, removed: alias, default: store.default }))
+      } else {
+        console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`); process.exit(1)
+      }
+      break
+    }
+
     // ── Auth ──────────────────────────────────────────────────────────────
     case 'auth-url': {
-      const mem = loadMemory()
-      if (!mem.GW_CLIENT_ID) { console.error('No GW_CLIENT_ID in MEMORY.md'); process.exit(1) }
+      const { entry } = resolveAccount()
+      const clientId = process.env.GW_CLIENT_ID || entry.client_id
+      if (!clientId) { console.error('No client_id available. Set one with: gw.mjs creds set <alias> --client-id ...'); process.exit(1) }
       const params = new URLSearchParams({
-        client_id: mem.GW_CLIENT_ID, redirect_uri: REDIRECT_URI,
+        client_id: clientId, redirect_uri: REDIRECT_URI,
         response_type: 'code', scope: SCOPES, access_type: 'offline', prompt: 'consent',
       })
       console.log(`${AUTH_URL}?${params}`)
@@ -135,20 +233,35 @@ try {
     }
     case 'auth-exchange': {
       const code = positional[0]
-      if (!code) { console.error('Usage: gw.mjs auth-exchange <code>'); process.exit(1) }
-      const mem = loadMemory()
-      if (!mem.GW_CLIENT_ID) { console.error('No GW_CLIENT_ID in MEMORY.md'); process.exit(1) }
+      if (!code) { console.error('Usage: gw.mjs auth-exchange <code> [--account <alias>]'); process.exit(1) }
+      let clientId = process.env.GW_CLIENT_ID, clientSecret = process.env.GW_CLIENT_SECRET, storeAcct = null
+      if (!clientId || !clientSecret) {
+        const { acct, entry } = resolveAccount()
+        storeAcct = acct
+        clientId = clientId || entry.client_id
+        clientSecret = clientSecret || entry.client_secret
+      }
       const resp = await fetch(TOKEN_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          code, client_id: mem.GW_CLIENT_ID, client_secret: mem.GW_CLIENT_SECRET,
+          code, client_id: clientId, client_secret: clientSecret,
           redirect_uri: REDIRECT_URI, grant_type: 'authorization_code',
         }),
       })
       const data = await resp.json()
       if (!resp.ok) { console.error(JSON.stringify({ error: data.error, description: data.error_description })); process.exit(1) }
-      saveTokenCache({ access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 })
-      console.log(JSON.stringify({ ok: true, refresh_token: data.refresh_token, scope: data.scope }))
+      const cache = loadTokenCache()
+      const exKey = createHash('sha256').update(`${clientId}:${data.refresh_token}`).digest('hex').slice(0, 16)
+      cache[exKey] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
+      saveTokenCache(cache)
+      if (storeAcct) {
+        const store = loadCredStore()
+        store.accounts[storeAcct] = { ...store.accounts[storeAcct], refresh_token: data.refresh_token }
+        saveCredStore(store)
+        console.log(JSON.stringify({ ok: true, account: storeAcct, refresh_token: fingerprint(data.refresh_token), scope: data.scope, stored: true }, null, 2))
+      } else {
+        console.log(JSON.stringify({ ok: true, refresh_token: data.refresh_token, scope: data.scope }))
+      }
       break
     }
 

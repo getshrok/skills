@@ -11,11 +11,33 @@ All date flags accept ISO 8601, relative (`today`, `tomorrow`), natural (`next m
 
 npm-deps: tsdav
 
-## Auth
+## Auth & accounts
 
-Two auth methods: `CALDAV_AUTH_METHOD=basic` or `CALDAV_AUTH_METHOD=oauth`. CalDAV uses a single protocol but providers differ on whether they require basic auth or OAuth — this is not obvious from the provider docs alone.
+Credentials are **stored in `.calendar-credentials.json`** (chmod 600), keyed by a short account
+alias. **You never type secrets for normal use** — select an account with `--account <alias>`
+(or `-a`); the scripts load the config/secret themselves. The committed
+`.calendar-credentials.json` shows the **example shape** (one basic + one oauth account) — use it.
 
-**Basic:** `CALDAV_URL`, `CALDAV_USER`, `CALDAV_PASS`
-**OAuth:** `CALDAV_URL`, `CALDAV_TOKEN_URL`, `CALDAV_CLIENT_ID`, `CALDAV_CLIENT_SECRET`, `CALDAV_REFRESH_TOKEN`
+```bash
+node $SHROK_SKILLS_DIR/calendar/events.mjs --account home --from today
+```
 
-Save all credentials to MEMORY.md when configured.
+Each account uses one of two auth methods (CalDAV uses a single protocol but providers differ on
+which they require — not obvious from provider docs):
+- **basic:** `url`, `auth_method: "basic"`, `user`, `pass`
+- **oauth:** `url`, `auth_method: "oauth"`, `token_url`, `client_id`, `client_secret`, `refresh_token`
+
+### Managing credentials
+
+```bash
+node $SHROK_SKILLS_DIR/calendar/creds.mjs list                  # passwords/secrets masked; url/user shown
+node $SHROK_SKILLS_DIR/calendar/creds.mjs set <alias> --url U --user U --pass P              # basic
+node $SHROK_SKILLS_DIR/calendar/creds.mjs set <alias> --url U --auth-method oauth --token-url U --client-id ID --client-secret S --refresh-token T
+node $SHROK_SKILLS_DIR/calendar/creds.mjs set <alias> --stdin   # full JSON entry on stdin
+node $SHROK_SKILLS_DIR/calendar/creds.mjs set-default <alias>
+node $SHROK_SKILLS_DIR/calendar/creds.mjs remove <alias>
+```
+
+**Escape hatch:** the old env vars (`CALDAV_URL`, `CALDAV_USER`, `CALDAV_PASS`, `CALDAV_AUTH_METHOD`,
+`CALDAV_TOKEN_URL`, `CALDAV_CLIENT_ID`, `CALDAV_CLIENT_SECRET`, `CALDAV_REFRESH_TOKEN`) still work as
+per-field fallbacks if set.

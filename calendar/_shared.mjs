@@ -2,6 +2,8 @@
 
 import { createDAVClient } from 'tsdav'
 import { randomUUID } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const EXIT = {
   OK:         0,
@@ -12,43 +14,132 @@ export const EXIT = {
   CONFLICT:   5,
 }
 
+const SKILL_DIR = import.meta.dirname
+const CRED_STORE = process.env.CALDAV_CRED_STORE || join(SKILL_DIR, '.calendar-credentials.json')
+
+// ── Credentials store ─────────────────────────────────────────────────────────
+// Per-account CalDAV config + secrets, keyed by short alias, so the agent picks
+// an account by name (--account <alias>) instead of pasting passwords/tokens.
+// See .calendar-credentials.json for the example shape. An account is either:
+//   basic: { label, url, auth_method:"basic", user, pass }
+//   oauth: { label, url, auth_method:"oauth", token_url, client_id, client_secret, refresh_token }
+export function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch { return { accounts: {}, default: null } }
+}
+export function saveCredStore(store) { writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n') }
+export function fingerprint(s) { if (!s) return null; return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})` }
+
+// Extract --account/-a from argv at load (before strict entry-script parsers run).
+const SELECTED_ACCOUNT = (() => {
+  const a = process.argv
+  for (let i = 2; i < a.length; i++) {
+    if ((a[i] === '--account' || a[i] === '-a') && a[i + 1] !== undefined) { const v = a[i + 1]; a.splice(i, 2); return v }
+    if (a[i].startsWith('--account=')) { const v = a[i].slice('--account='.length); a.splice(i, 1); return v }
+  }
+  return process.env.CALDAV_ACCOUNT || null
+})()
+
+function resolveAccountSoft() {
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = SELECTED_ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  if (!acct || !store.accounts[acct]) return { acct: null, entry: {}, aliases }
+  return { acct, entry: store.accounts[acct], aliases }
+}
+
+export function accountField(name, envVar) {
+  const { entry } = resolveAccountSoft()
+  return entry[name] ?? (envVar ? process.env[envVar] : null) ?? null
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 export async function makeClient() {
-  const { CALDAV_URL, CALDAV_AUTH_METHOD = 'basic', CALDAV_USER, CALDAV_PASS,
-          CALDAV_TOKEN_URL, CALDAV_REFRESH_TOKEN, CALDAV_CLIENT_ID, CALDAV_CLIENT_SECRET } = process.env
+  const url = accountField('url', 'CALDAV_URL')
+  if (!url) { console.error('No CalDAV url. Set with: node creds.mjs set <alias> --url ... (or CALDAV_URL env)'); process.exit(EXIT.CONNECTION) }
 
-  if (!CALDAV_URL) { console.error('CALDAV_URL is not set'); process.exit(EXIT.CONNECTION) }
-
-  const method = CALDAV_AUTH_METHOD.toLowerCase()
+  const method = (accountField('auth_method', 'CALDAV_AUTH_METHOD') ?? 'basic').toLowerCase()
 
   if (method === 'oauth') {
-    if (!CALDAV_TOKEN_URL)     { console.error('CALDAV_TOKEN_URL is not set'); process.exit(EXIT.AUTH) }
-    if (!CALDAV_CLIENT_ID)     { console.error('CALDAV_CLIENT_ID is not set'); process.exit(EXIT.AUTH) }
-    if (!CALDAV_CLIENT_SECRET) { console.error('CALDAV_CLIENT_SECRET is not set'); process.exit(EXIT.AUTH) }
-    if (!CALDAV_REFRESH_TOKEN) { console.error('CALDAV_REFRESH_TOKEN is not set'); process.exit(EXIT.AUTH) }
+    const tokenUrl = accountField('token_url', 'CALDAV_TOKEN_URL')
+    const clientId = accountField('client_id', 'CALDAV_CLIENT_ID')
+    const clientSecret = accountField('client_secret', 'CALDAV_CLIENT_SECRET')
+    const refreshToken = accountField('refresh_token', 'CALDAV_REFRESH_TOKEN')
+    if (!tokenUrl)     { console.error('No token_url (oauth). Set with: node creds.mjs set <alias> --token-url ...'); process.exit(EXIT.AUTH) }
+    if (!clientId)     { console.error('No client_id (oauth). Set with: node creds.mjs set <alias> --client-id ...'); process.exit(EXIT.AUTH) }
+    if (!clientSecret) { console.error('No client_secret (oauth). Set with: node creds.mjs set <alias> --client-secret ...'); process.exit(EXIT.AUTH) }
+    if (!refreshToken) { console.error('No refresh_token (oauth). Set with: node creds.mjs set <alias> --refresh-token ...'); process.exit(EXIT.AUTH) }
     return createDAVClient({
-      serverUrl: CALDAV_URL,
-      credentials: {
-        tokenUrl: CALDAV_TOKEN_URL,
-        clientId: CALDAV_CLIENT_ID,
-        clientSecret: CALDAV_CLIENT_SECRET,
-        refreshToken: CALDAV_REFRESH_TOKEN,
-      },
+      serverUrl: url,
+      credentials: { tokenUrl, clientId, clientSecret, refreshToken },
       authMethod: 'Oauth',
       defaultAccountType: 'caldav',
     })
   }
 
   // Basic auth (default)
-  if (!CALDAV_USER) { console.error('CALDAV_USER is not set'); process.exit(EXIT.AUTH) }
-  if (!CALDAV_PASS) { console.error('CALDAV_PASS is not set'); process.exit(EXIT.AUTH) }
+  const user = accountField('user', 'CALDAV_USER')
+  const pass = accountField('pass', 'CALDAV_PASS')
+  if (!user) { console.error('No user (basic). Set with: node creds.mjs set <alias> --user ... (or CALDAV_USER env)'); process.exit(EXIT.AUTH) }
+  if (!pass) { console.error('No pass (basic). Set with: node creds.mjs set <alias> --pass ... (or CALDAV_PASS env)'); process.exit(EXIT.AUTH) }
   return createDAVClient({
-    serverUrl: CALDAV_URL,
-    credentials: { username: CALDAV_USER, password: CALDAV_PASS },
+    serverUrl: url,
+    credentials: { username: user, password: pass },
     authMethod: 'Basic',
     defaultAccountType: 'caldav',
   })
+}
+
+// ── Credential management (CLI surface, used by creds.mjs) ─────────────────────
+export function manageCreds(argv) {
+  const sub = argv[0]
+  const store = loadCredStore()
+  const secretFields = ['pass', 'client_secret', 'refresh_token']
+  const plainFields = ['label', 'url', 'auth_method', 'user', 'token_url', 'client_id']
+  const view = (e) => {
+    const o = {}
+    for (const k of plainFields) o[k] = e[k] ?? null
+    for (const k of secretFields) o[k] = fingerprint(e[k])
+    return o
+  }
+  if (sub === 'list' || !sub) {
+    const accounts = Object.entries(store.accounts).map(([alias, e]) => ({ account: alias, default: store.default === alias, ...view(e) }))
+    console.log(JSON.stringify({ accounts, default: store.default }, null, 2)); return
+  }
+  if (sub === 'set') {
+    const alias = argv[1]
+    if (!alias) { console.error('Usage: creds.mjs set <alias> --url U [--auth-method basic|oauth] [--user U] [--pass P] [--token-url U] [--client-id ID] [--client-secret S] [--refresh-token T] [--label L] [--default] [--stdin]'); process.exit(EXIT.USAGE) }
+    const entry = store.accounts[alias] ?? {}
+    let useStdin = false, makeDefault = false
+    const flag = { '--label': 'label', '--url': 'url', '--auth-method': 'auth_method', '--user': 'user', '--pass': 'pass', '--token-url': 'token_url', '--client-id': 'client_id', '--client-secret': 'client_secret', '--refresh-token': 'refresh_token' }
+    for (let i = 2; i < argv.length; i++) {
+      if (flag[argv[i]]) entry[flag[argv[i]]] = argv[++i]
+      else if (argv[i] === '--stdin') useStdin = true
+      else if (argv[i] === '--default') makeDefault = true
+    }
+    if (useStdin) { const blob = JSON.parse(readFileSync(0, 'utf8')); for (const k of [...secretFields, ...plainFields]) if (blob[k] != null) entry[k] = blob[k] }
+    store.accounts[alias] = entry
+    if (makeDefault || store.default == null) store.default = alias
+    saveCredStore(store)
+    console.log(JSON.stringify({ ok: true, account: alias, default: store.default, ...view(entry) }, null, 2)); return
+  }
+  if (sub === 'set-default') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(EXIT.USAGE) }
+    store.default = alias; saveCredStore(store); console.log(JSON.stringify({ ok: true, default: alias })); return
+  }
+  if (sub === 'remove' || sub === 'rm') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(EXIT.USAGE) }
+    delete store.accounts[alias]; if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+    saveCredStore(store); console.log(JSON.stringify({ ok: true, removed: alias, default: store.default })); return
+  }
+  console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`); process.exit(EXIT.USAGE)
 }
 
 // ─── Calendar resolution ──────────────────────────────────────────────────────

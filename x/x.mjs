@@ -1,39 +1,99 @@
 #!/usr/bin/env node
 
-import { readFileSync, existsSync, createReadStream } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, createReadStream } from 'node:fs'
 import { join, basename } from 'node:path'
 import { stat } from 'node:fs/promises'
 
 const SKILL_DIR = import.meta.dirname
-const MEMORY_FILE = join(SKILL_DIR, 'MEMORY.md')
+const CRED_STORE = process.env.X_CRED_STORE || join(SKILL_DIR, '.x-credentials.json')
 
-function loadMemory() {
-  if (!existsSync(MEMORY_FILE)) return {}
-  const result = {}
-  for (const line of readFileSync(MEMORY_FILE, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq === -1) continue
-    result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim()
+// Selected account alias (from --account / -a). The model passes only the alias.
+let ACCOUNT = null
+
+// ── Credentials store ─────────────────────────────────────────────────────────
+// { "accounts": { "<alias>": { label, api_key, api_secret, access_token, access_secret } }, "default": ... }
+// See the committed .x-credentials.json for the example shape.
+function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch { return { accounts: {}, default: null } }
+}
+function saveCredStore(store) { writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n') }
+function fingerprint(s) { if (!s) return null; return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})` }
+
+function getCreds() {
+  // Env-var override: one-off escape hatch. Normal path is the store via --account.
+  const e = process.env
+  if (e.X_API_KEY && e.X_API_SECRET && e.X_ACCESS_TOKEN && e.X_ACCESS_SECRET) {
+    return { api_key: e.X_API_KEY, api_secret: e.X_API_SECRET, access_token: e.X_ACCESS_TOKEN, access_secret: e.X_ACCESS_SECRET }
   }
-  return result
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  if (!acct) throw new Error(`No account selected. Pass --account <alias>. Available: ${aliases.join(', ') || '(none — add one with: x.mjs creds set <alias> ...)'}`)
+  const entry = store.accounts[acct]
+  if (!entry) throw new Error(`Unknown account '${acct}'. Available: ${aliases.join(', ') || '(none)'}`)
+  const missing = ['api_key', 'api_secret', 'access_token', 'access_secret'].filter(k => !entry[k])
+  if (missing.length) throw new Error(`Account '${acct}' is missing: ${missing.join(', ')}. Set with: x.mjs creds set ${acct} --api-key ... --api-secret ... --access-token ... --access-secret ...`)
+  return entry
 }
 
 function getClient() {
-  const mem = loadMemory()
-  if (!mem.X_API_KEY || !mem.X_API_SECRET || !mem.X_ACCESS_TOKEN || !mem.X_ACCESS_SECRET) {
-    throw new Error('Missing X credentials in MEMORY.md. Need: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET')
-  }
+  const c = getCreds()
   // Dynamic import since this is an npm-deps skill
   return import('twitter-api-v2').then(({ TwitterApi }) => {
     return new TwitterApi({
-      appKey: mem.X_API_KEY,
-      appSecret: mem.X_API_SECRET,
-      accessToken: mem.X_ACCESS_TOKEN,
-      accessSecret: mem.X_ACCESS_SECRET,
+      appKey: c.api_key,
+      appSecret: c.api_secret,
+      accessToken: c.access_token,
+      accessSecret: c.access_secret,
     })
   })
+}
+
+function manageCreds(argv) {
+  const sub = argv[0]
+  const store = loadCredStore()
+  if (sub === 'list' || !sub) {
+    const accounts = Object.entries(store.accounts).map(([alias, e]) => ({
+      account: alias, default: store.default === alias, label: e.label ?? null,
+      api_key: fingerprint(e.api_key), api_secret: fingerprint(e.api_secret), access_token: fingerprint(e.access_token), access_secret: fingerprint(e.access_secret),
+    }))
+    console.log(JSON.stringify({ accounts, default: store.default }, null, 2)); return
+  }
+  if (sub === 'set') {
+    const alias = argv[1]
+    if (!alias) { console.error('Usage: x.mjs creds set <alias> [--label L] [--api-key K] [--api-secret S] [--access-token T] [--access-secret S] [--default] [--stdin]'); process.exit(1) }
+    const entry = store.accounts[alias] ?? {}
+    let useStdin = false, makeDefault = false
+    const flag = { '--label': 'label', '--api-key': 'api_key', '--api-secret': 'api_secret', '--access-token': 'access_token', '--access-secret': 'access_secret' }
+    for (let i = 2; i < argv.length; i++) {
+      if (flag[argv[i]]) entry[flag[argv[i]]] = argv[++i]
+      else if (argv[i] === '--stdin') useStdin = true
+      else if (argv[i] === '--default') makeDefault = true
+    }
+    if (useStdin) { const blob = JSON.parse(readFileSync(0, 'utf8')); for (const k of ['label', 'api_key', 'api_secret', 'access_token', 'access_secret']) if (blob[k] != null) entry[k] = blob[k] }
+    store.accounts[alias] = entry
+    if (makeDefault || store.default == null) store.default = alias
+    saveCredStore(store)
+    console.log(JSON.stringify({ ok: true, account: alias, default: store.default, label: entry.label ?? null,
+      api_key: fingerprint(entry.api_key), api_secret: fingerprint(entry.api_secret), access_token: fingerprint(entry.access_token), access_secret: fingerprint(entry.access_secret) }, null, 2)); return
+  }
+  if (sub === 'set-default') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+    store.default = alias; saveCredStore(store); console.log(JSON.stringify({ ok: true, default: alias })); return
+  }
+  if (sub === 'remove' || sub === 'rm') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+    delete store.accounts[alias]; if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+    saveCredStore(store); console.log(JSON.stringify({ ok: true, removed: alias, default: store.default })); return
+  }
+  console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`); process.exit(1)
 }
 
 function parseArgs(args) {
@@ -50,12 +110,31 @@ function parseArgs(args) {
   return { opts, positional }
 }
 
-const [cmd, ...args] = process.argv.slice(2)
+const [cmd, ...rawArgs] = process.argv.slice(2)
+
+// Pull --account / -a out so per-command parsing doesn't see it.
+const args = []
+for (let i = 0; i < rawArgs.length; i++) {
+  const a = rawArgs[i]
+  if (a === '--account' || a === '-a') ACCOUNT = rawArgs[++i]
+  else if (a.startsWith('--account=')) ACCOUNT = a.slice('--account='.length)
+  else args.push(a)
+}
+
+if (cmd === 'creds') { manageCreds(args); process.exit(0) }
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
-  console.log(`Usage: x.mjs <command> [options]
+  console.log(`Usage: x.mjs <command> [--account <alias>] [options]
 
-Reads credentials from MEMORY.md (X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET).
+Credentials are stored per-account in .x-credentials.json and selected with --account <alias>.
+You never pass secrets for normal use. Manage with the 'creds' command.
+(Escape hatch: X_API_KEY + X_API_SECRET + X_ACCESS_TOKEN + X_ACCESS_SECRET env vars override the store.)
+
+Credential management:
+  creds list                               List accounts (masked fingerprints)
+  creds set <alias> [--api-key K] [--api-secret S] [--access-token T] [--access-secret S] [--default]
+  creds set-default <alias>
+  creds remove <alias>
 
 Commands:
   post --text TEXT [--media PATH] [--reply-to ID] [--quote ID]

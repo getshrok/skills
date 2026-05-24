@@ -3,13 +3,20 @@ name: create-image
 description: Generate and edit images using OpenAI (GPT Image) or Google (Gemini / Nano Banana). Use when the user asks to create, draw, design, or edit an image.
 ---
 
-Two providers are supported. Pick whichever key the user has in MEMORY.md (`OPENAI_API_KEY` or `GEMINI_API_KEY`). If both are present, default to OpenAI unless the user has expressed a preference. **If one provider fails, fall back to the other before reporting an error.** If the user supplies a new key, save it to MEMORY.md immediately.
+Two providers are supported. **OpenAI** keys live in `.openai-credentials.json` (managed via
+`node openai.mjs creds ...`, selected with `--account`); **Gemini** uses `GEMINI_API_KEY` from the
+environment (code-execution path). Default to OpenAI unless the user prefers Gemini. **If one
+provider fails, fall back to the other before reporting an error.** If the user supplies a new
+OpenAI key, store it with `openai.mjs creds set <alias> --api-key ...`.
 
 Save images to `$WORKSPACE_PATH/media/`.
 
 ## OpenAI (GPT Image)
 
-Run via the bundled CLI: `node openai.mjs <command> [options]`. Pass the API key via `--key` or `OPENAI_API_KEY` env var.
+Run via the bundled CLI: `node openai.mjs <command> --account <alias> [options]`. The API key is
+stored per-account in `.openai-credentials.json` (see the committed example shape) — you never
+pass it. Manage with `openai.mjs creds list|set|set-default|remove`. (`--key <KEY>` flag or
+`OPENAI_API_KEY` env override the store for one-offs.)
 
 **Important:** `gpt-image-1.5` typically takes ~5–10s; legacy `gpt-image-1` takes 30–60+s. Set bash timeout to at least 120000ms when using the legacy model: `{"command": "...", "timeout": 120000}`
 

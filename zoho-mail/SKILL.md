@@ -7,9 +7,22 @@ Run `node $SHROK_SKILLS_DIR/zoho-mail/<script>.mjs --help` for available command
 
 ## Auth
 
-Credentials are stored in this skill's `MEMORY.md`:
+Credentials are **stored in `.zoho-credentials.json`** (chmod 600), keyed by a short account
+alias. **You never type secrets for normal use** — select an account with `--account <alias>`
+(or `-a`). The non-secret `account_id` and `from_address` live in the account entry too. The
+committed `.zoho-credentials.json` shows the **example shape** — use it. Manage with `creds.mjs`:
 
-`ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_ACCOUNT_ID`, `ZOHO_FROM_ADDRESS`
+```bash
+node $SHROK_SKILLS_DIR/zoho-mail/creds.mjs list                  # masked secrets; account_id/from_address shown
+node $SHROK_SKILLS_DIR/zoho-mail/creds.mjs set <alias> --client-id ID --client-secret S --refresh-token T --account-id ID --from-address you@x.com
+node $SHROK_SKILLS_DIR/zoho-mail/creds.mjs set <alias> --stdin
+node $SHROK_SKILLS_DIR/zoho-mail/creds.mjs set-default <alias>
+node $SHROK_SKILLS_DIR/zoho-mail/creds.mjs remove <alias>
+```
+
+`set` updates only the fields you pass; verify with `creds list`. **Escape hatch:** if
+`ZOHO_CLIENT_ID`+`ZOHO_CLIENT_SECRET`+`ZOHO_REFRESH_TOKEN` env vars are all set, they override the
+store (`account_id` falls back to `ZOHO_ACCOUNT_ID` env).
 
 Required scopes: `ZohoMail.messages.READ,ZohoMail.messages.CREATE,ZohoMail.accounts.READ`
 

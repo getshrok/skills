@@ -3,5 +3,11 @@
 */package.json
 */package-lock.json
 
-# skill credentials — never commit
+# skill credentials & runtime token caches — never commit
 */MEMORY.md
+*/.token-cache
+*/.token
+
+# Per-account credential stores hold real secrets once filled in. The committed
+# .<service>-credentials.json files in this repo are PLACEHOLDER example shapes only;
+# never commit one containing real secrets.

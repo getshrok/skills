@@ -5,7 +5,7 @@
 
 import { createTransport } from 'nodemailer'
 import { parseArgs } from 'node:util'
-import { EXIT } from './_shared.mjs'
+import { EXIT, accountField } from './_shared.mjs'
 
 const { values } = parseArgs({
   options: {
@@ -27,13 +27,15 @@ if (!values.subject && !values['reply-to-id']) {
   console.error('--subject is required unless replying with --reply-to-id'); process.exit(EXIT.USAGE)
 }
 
-const {
-  SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
-} = process.env
+const SMTP_HOST = accountField('smtp_host', 'SMTP_HOST')
+const SMTP_PORT = accountField('smtp_port', 'SMTP_PORT')
+const SMTP_USER = accountField('smtp_user', 'SMTP_USER')
+const SMTP_PASS = accountField('smtp_pass', 'SMTP_PASS')
+const SMTP_FROM = accountField('smtp_from', 'SMTP_FROM')
 
-if (!SMTP_HOST) { console.error('SMTP_HOST is not set'); process.exit(EXIT.AUTH) }
-if (!SMTP_USER) { console.error('SMTP_USER is not set'); process.exit(EXIT.AUTH) }
-if (!SMTP_PASS) { console.error('SMTP_PASS is not set'); process.exit(EXIT.AUTH) }
+if (!SMTP_HOST) { console.error('No smtp_host. Set with: node creds.mjs set <alias> --smtp-host ... (or SMTP_HOST env)'); process.exit(EXIT.AUTH) }
+if (!SMTP_USER) { console.error('No smtp_user. Set with: node creds.mjs set <alias> --smtp-user ... (or SMTP_USER env)'); process.exit(EXIT.AUTH) }
+if (!SMTP_PASS) { console.error('No smtp_pass. Set with: node creds.mjs set <alias> --smtp-pass ... (or SMTP_PASS env)'); process.exit(EXIT.AUTH) }
 
 const port = parseInt(SMTP_PORT ?? '587', 10)
 const secure = port === 465

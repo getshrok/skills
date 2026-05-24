@@ -1,31 +1,81 @@
 #!/usr/bin/env node
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const SKILL_DIR = import.meta.dirname
-const MEMORY_FILE = join(SKILL_DIR, 'MEMORY.md')
+const CRED_STORE = process.env.TRELLO_CRED_STORE || join(SKILL_DIR, '.trello-credentials.json')
 const BASE = 'https://api.trello.com/1'
 
-function loadMemory() {
-  if (!existsSync(MEMORY_FILE)) return {}
-  const result = {}
-  for (const line of readFileSync(MEMORY_FILE, 'utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq === -1) continue
-    result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim()
-  }
-  return result
+// Selected account alias (from --account / -a). The model passes only the alias.
+let ACCOUNT = null
+
+// ── Credentials store ─────────────────────────────────────────────────────────
+// { "accounts": { "<alias>": { label, api_key, token } }, "default": "<alias>|null" }
+// See the committed .trello-credentials.json for the example shape.
+function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch { return { accounts: {}, default: null } }
 }
+function saveCredStore(store) { writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n') }
+function fingerprint(s) { if (!s) return null; return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})` }
 
 function getAuth() {
-  const mem = loadMemory()
-  if (!mem.TRELLO_API_KEY || !mem.TRELLO_TOKEN) {
-    throw new Error('Missing TRELLO_API_KEY or TRELLO_TOKEN in MEMORY.md')
+  // Env-var override: one-off escape hatch. Normal path is the store via --account.
+  if (process.env.TRELLO_API_KEY && process.env.TRELLO_TOKEN) {
+    return { key: process.env.TRELLO_API_KEY, token: process.env.TRELLO_TOKEN }
   }
-  return { key: mem.TRELLO_API_KEY, token: mem.TRELLO_TOKEN }
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  if (!acct) throw new Error(`No account selected. Pass --account <alias>. Available: ${aliases.join(', ') || '(none — add one with: trello.mjs creds set <alias> ...)'}`)
+  const entry = store.accounts[acct]
+  if (!entry) throw new Error(`Unknown account '${acct}'. Available: ${aliases.join(', ') || '(none)'}`)
+  if (!entry.api_key || !entry.token) throw new Error(`Account '${acct}' is missing api_key or token. Set with: trello.mjs creds set ${acct} --api-key ... --token ...`)
+  return { key: entry.api_key, token: entry.token }
+}
+
+function manageCreds(argv) {
+  const sub = argv[0]
+  const store = loadCredStore()
+  if (sub === 'list' || !sub) {
+    const accounts = Object.entries(store.accounts).map(([alias, e]) => ({ account: alias, default: store.default === alias, label: e.label ?? null, api_key: fingerprint(e.api_key), token: fingerprint(e.token) }))
+    console.log(JSON.stringify({ accounts, default: store.default }, null, 2)); return
+  }
+  if (sub === 'set') {
+    const alias = argv[1]
+    if (!alias) { console.error('Usage: trello.mjs creds set <alias> [--label L] [--api-key KEY] [--token T] [--default] [--stdin]'); process.exit(1) }
+    const entry = store.accounts[alias] ?? {}
+    let useStdin = false, makeDefault = false
+    for (let i = 2; i < argv.length; i++) {
+      if (argv[i] === '--label') entry.label = argv[++i]
+      else if (argv[i] === '--api-key') entry.api_key = argv[++i]
+      else if (argv[i] === '--token') entry.token = argv[++i]
+      else if (argv[i] === '--stdin') useStdin = true
+      else if (argv[i] === '--default') makeDefault = true
+    }
+    if (useStdin) { const blob = JSON.parse(readFileSync(0, 'utf8')); for (const k of ['label', 'api_key', 'token']) if (blob[k] != null) entry[k] = blob[k] }
+    store.accounts[alias] = entry
+    if (makeDefault || store.default == null) store.default = alias
+    saveCredStore(store)
+    console.log(JSON.stringify({ ok: true, account: alias, default: store.default, label: entry.label ?? null, api_key: fingerprint(entry.api_key), token: fingerprint(entry.token) }, null, 2)); return
+  }
+  if (sub === 'set-default') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+    store.default = alias; saveCredStore(store); console.log(JSON.stringify({ ok: true, default: alias })); return
+  }
+  if (sub === 'remove' || sub === 'rm') {
+    const alias = argv[1]
+    if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+    delete store.accounts[alias]; if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+    saveCredStore(store); console.log(JSON.stringify({ ok: true, removed: alias, default: store.default })); return
+  }
+  console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`); process.exit(1)
 }
 
 async function trelloFetch(path, options = {}) {
@@ -55,12 +105,31 @@ function parseArgs(args) {
   return { opts, positional }
 }
 
-const [cmd, ...args] = process.argv.slice(2)
+const [cmd, ...rawArgs] = process.argv.slice(2)
+
+// Pull --account / -a out so per-command parsing doesn't see it.
+const args = []
+for (let i = 0; i < rawArgs.length; i++) {
+  const a = rawArgs[i]
+  if (a === '--account' || a === '-a') ACCOUNT = rawArgs[++i]
+  else if (a.startsWith('--account=')) ACCOUNT = a.slice('--account='.length)
+  else args.push(a)
+}
+
+if (cmd === 'creds') { manageCreds(args); process.exit(0) }
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
-  console.log(`Usage: trello.mjs <command> [options]
+  console.log(`Usage: trello.mjs <command> [--account <alias>] [options]
 
-Reads credentials from MEMORY.md (TRELLO_API_KEY, TRELLO_TOKEN).
+Credentials are stored per-account in .trello-credentials.json and selected with --account <alias>.
+You never pass secrets for normal use. Manage with the 'creds' command.
+(Escape hatch: TRELLO_API_KEY + TRELLO_TOKEN env vars override the store if both set.)
+
+Credential management:
+  creds list                          List accounts (masked key/token fingerprints)
+  creds set <alias> [--label L] [--api-key KEY] [--token T] [--default]   (or --stdin for JSON)
+  creds set-default <alias>
+  creds remove <alias>
 
 Commands:
   boards                              List all open boards
