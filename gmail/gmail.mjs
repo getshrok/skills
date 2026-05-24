@@ -5,41 +5,80 @@ import { join } from 'node:path'
 
 const SKILL_DIR = import.meta.dirname
 const TOKEN_CACHE = join(SKILL_DIR, '.token-cache')
+const CRED_STORE = process.env.GMAIL_CRED_STORE || join(SKILL_DIR, '.gmail-credentials.json')
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const SCOPES = 'https://mail.google.com/'
 const REDIRECT_URI = 'http://localhost'
 
-// Format a Date as ISO 8601 with the system's local timezone offset
-// (e.g. "2026-05-21T10:30:00-04:00"). Returns null for invalid dates.
-function toLocalISO(d) {
-  if (!d || isNaN(d.getTime())) return null
-  const pad = (n, w = 2) => String(n).padStart(w, '0')
-  const tz = -d.getTimezoneOffset()
-  const sign = tz >= 0 ? '+' : '-'
-  const absTz = Math.abs(tz)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
-         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
-         `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
+// Selected account alias (set from --account / -a during dispatch). The model
+// only ever passes this short alias; it never types the secret values.
+let ACCOUNT = null
+
+// ── Credentials store ─────────────────────────────────────────────────────────
+// Secrets live here, keyed by short account alias, so the model references an
+// account by name instead of pasting long opaque tokens on the command line.
+// Shape: { "accounts": { "<alias>": { email, client_id, client_secret, refresh_token } }, "default": "<alias>|null" }
+
+function loadCredStore() {
+  try {
+    const s = JSON.parse(readFileSync(CRED_STORE, 'utf8'))
+    if (!s.accounts) s.accounts = {}
+    if (!('default' in s)) s.default = null
+    return s
+  } catch {
+    return { accounts: {}, default: null }
+  }
+}
+
+function saveCredStore(store) {
+  writeFileSync(CRED_STORE, JSON.stringify(store, null, 2) + '\n')
+}
+
+// Show only a short fingerprint of a secret so it can be eyeballed/verified
+// without ever printing (or requiring the model to copy) the full value.
+function fingerprint(s) {
+  if (!s) return null
+  return s.length <= 8 ? '••••' : `…${s.slice(-4)} (len ${s.length})`
+}
+
+function resolveAccount() {
+  const store = loadCredStore()
+  const aliases = Object.keys(store.accounts)
+  const acct = ACCOUNT || store.default || (aliases.length === 1 ? aliases[0] : null)
+  if (!acct) {
+    throw new Error(
+      `No account selected. Pass --account <alias>.\n` +
+      `Available accounts: ${aliases.length ? aliases.join(', ') : '(none — add one with: gmail.mjs creds set <alias> ...)'}`
+    )
+  }
+  const entry = store.accounts[acct]
+  if (!entry) {
+    throw new Error(`Unknown account '${acct}'. Available: ${aliases.join(', ') || '(none)'}`)
+  }
+  return { acct, entry }
 }
 
 function requireCredentials() {
-  const missing = ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN']
-    .filter(k => !process.env[k])
+  // Env-var override: a one-off escape hatch for testing. The normal path is the
+  // credentials store via --account, so the model doesn't handle secrets at all.
+  if (process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN) {
+    return {
+      clientId:     process.env.GMAIL_CLIENT_ID,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET,
+      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+    }
+  }
+  const { acct, entry } = resolveAccount()
+  const missing = ['client_id', 'client_secret', 'refresh_token'].filter(k => !entry[k])
   if (missing.length) {
     throw new Error(
-      `Missing required environment variable(s): ${missing.join(', ')}\n` +
-      `Set them at invocation time, e.g.:\n` +
-      `  GMAIL_CLIENT_ID=... GMAIL_CLIENT_SECRET=... GMAIL_REFRESH_TOKEN=... node gmail.mjs <command>\n` +
-      `See MEMORY.md for credential values for each account.`
+      `Account '${acct}' is missing: ${missing.join(', ')}.\n` +
+      `Set them with: gmail.mjs creds set ${acct} --client-id ... --client-secret ... --refresh-token ...`
     )
   }
-  return {
-    clientId:     process.env.GMAIL_CLIENT_ID,
-    clientSecret: process.env.GMAIL_CLIENT_SECRET,
-    refreshToken: process.env.GMAIL_REFRESH_TOKEN,
-  }
+  return { clientId: entry.client_id, clientSecret: entry.client_secret, refreshToken: entry.refresh_token }
 }
 
 function loadTokenCache() {
@@ -128,17 +167,42 @@ async function batchFetch(ids, fetchFn, batchSize = 5, delayMs = 200) {
   return results
 }
 
-const [cmd, ...args] = process.argv.slice(2)
+const [cmd, ...rawArgs] = process.argv.slice(2)
+
+// Pull --account / -a out of the args so per-command parsers don't see it, and
+// set the module-level ACCOUNT used when resolving credentials.
+const args = []
+for (let i = 0; i < rawArgs.length; i++) {
+  const a = rawArgs[i]
+  if (a === '--account' || a === '-a') ACCOUNT = rawArgs[++i]
+  else if (a.startsWith('--account=')) ACCOUNT = a.slice('--account='.length)
+  else args.push(a)
+}
 
 if (!cmd || cmd === '--help' || cmd === '-h') {
-  console.log(`Usage: gmail.mjs <command> [options]
+  console.log(`Usage: gmail.mjs <command> [--account <alias>] [options]
 
-Credentials must be supplied as environment variables at invocation time (see MEMORY.md):
-  GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN
+Credentials are stored per-account in .gmail-credentials.json and selected with
+--account <alias> (or -a). You never pass secrets on the command line for normal use.
+Manage stored credentials with the 'creds' command below.
+(Escape hatch: GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN env vars override the store if all set.)
+
+Account selection:
+  --account, -a <alias>             Which stored account to use. Optional if a default is
+                                    set or there's exactly one account.
+
+Credential management:
+  creds list                        List accounts (emails + masked fingerprints; no secrets)
+  creds set <alias> [--email E] [--client-id ID] [--client-secret S] [--refresh-token T] [--default]
+                                    Create/update an account (only the fields you pass change).
+                                    Or pipe a JSON object on stdin with: creds set <alias> --stdin
+  creds set-default <alias>         Mark an account as the default
+  creds remove <alias>              Delete a stored account
 
 Commands:
-  auth-url                          Print OAuth authorization URL
-  auth-exchange <code>              Exchange authorization code, print refresh token
+  auth-url [--account A]            Print OAuth authorization URL (client id from the account)
+  auth-exchange <code> [--account A]  Exchange code; with --account, writes the refresh token
+                                    straight into the store (no copying)
   token                             Print current access token
   profile                           Show authenticated user's email
   list [--query Q] [--max N] [--since ISO]  List messages (default: 10; --since filters by receipt time)
@@ -155,10 +219,82 @@ Commands:
 
 try {
   switch (cmd) {
+    case 'creds': {
+      const sub = args[0]
+      const store = loadCredStore()
+      if (sub === 'list' || !sub) {
+        const out = Object.entries(store.accounts).map(([alias, e]) => ({
+          account: alias,
+          email: e.email ?? null,
+          default: store.default === alias,
+          client_id: fingerprint(e.client_id),
+          client_secret: fingerprint(e.client_secret),
+          refresh_token: fingerprint(e.refresh_token),
+        }))
+        console.log(JSON.stringify({ accounts: out, default: store.default }, null, 2))
+        break
+      }
+      if (sub === 'set') {
+        const alias = args[1]
+        if (!alias) { console.error('Usage: gmail.mjs creds set <alias> [--email E] [--client-id ID] [--client-secret S] [--refresh-token T] [--default] [--stdin]'); process.exit(1) }
+        const entry = store.accounts[alias] ?? {}
+        let useStdin = false, makeDefault = false
+        for (let i = 2; i < args.length; i++) {
+          if (args[i] === '--email') entry.email = args[++i]
+          else if (args[i] === '--client-id') entry.client_id = args[++i]
+          else if (args[i] === '--client-secret') entry.client_secret = args[++i]
+          else if (args[i] === '--refresh-token') entry.refresh_token = args[++i]
+          else if (args[i] === '--stdin') useStdin = true
+          else if (args[i] === '--default') makeDefault = true
+        }
+        if (useStdin) {
+          const blob = JSON.parse(readFileSync(0, 'utf8'))
+          for (const k of ['email', 'client_id', 'client_secret', 'refresh_token']) {
+            if (blob[k] != null) entry[k] = blob[k]
+          }
+        }
+        store.accounts[alias] = entry
+        if (makeDefault || store.default == null) store.default = alias
+        saveCredStore(store)
+        console.log(JSON.stringify({
+          ok: true, account: alias, default: store.default,
+          email: entry.email ?? null,
+          client_id: fingerprint(entry.client_id),
+          client_secret: fingerprint(entry.client_secret),
+          refresh_token: fingerprint(entry.refresh_token),
+        }, null, 2))
+        break
+      }
+      if (sub === 'set-default') {
+        const alias = args[1]
+        if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+        store.default = alias
+        saveCredStore(store)
+        console.log(JSON.stringify({ ok: true, default: alias }))
+        break
+      }
+      if (sub === 'remove' || sub === 'rm') {
+        const alias = args[1]
+        if (!alias || !store.accounts[alias]) { console.error(`Unknown account '${alias}'. Available: ${Object.keys(store.accounts).join(', ') || '(none)'}`); process.exit(1) }
+        delete store.accounts[alias]
+        if (store.default === alias) store.default = Object.keys(store.accounts)[0] ?? null
+        saveCredStore(store)
+        console.log(JSON.stringify({ ok: true, removed: alias, default: store.default }))
+        break
+      }
+      console.error(`Unknown creds subcommand '${sub}'. Use: list | set | set-default | remove`)
+      process.exit(1)
+    }
+
     case 'auth-url': {
-      const clientId = process.env.GMAIL_CLIENT_ID
+      // client id comes from the selected account's stored creds, or env override.
+      let clientId = process.env.GMAIL_CLIENT_ID
       if (!clientId) {
-        console.error('GMAIL_CLIENT_ID environment variable is required for auth-url.')
+        const { entry } = resolveAccount()
+        clientId = entry.client_id
+      }
+      if (!clientId) {
+        console.error('No client_id available. Set one with: gmail.mjs creds set <alias> --client-id ...')
         process.exit(1)
       }
       const params = new URLSearchParams({
@@ -175,11 +311,19 @@ try {
 
     case 'auth-exchange': {
       const code = args[0]
-      if (!code) { console.error('Usage: gmail.mjs auth-exchange <code>'); process.exit(1) }
-      const clientId     = process.env.GMAIL_CLIENT_ID
-      const clientSecret = process.env.GMAIL_CLIENT_SECRET
+      if (!code) { console.error('Usage: gmail.mjs auth-exchange <code> [--account <alias>]'); process.exit(1) }
+      // Pull client id/secret from the account store (preferred) or env.
+      let clientId = process.env.GMAIL_CLIENT_ID
+      let clientSecret = process.env.GMAIL_CLIENT_SECRET
+      let storeAcct = null
       if (!clientId || !clientSecret) {
-        console.error('GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET environment variables are required for auth-exchange.')
+        const { acct, entry } = resolveAccount()
+        storeAcct = acct
+        clientId = clientId || entry.client_id
+        clientSecret = clientSecret || entry.client_secret
+      }
+      if (!clientId || !clientSecret) {
+        console.error('client_id and client_secret required (set them on the account first, or pass via env).')
         process.exit(1)
       }
       const resp = await fetch(TOKEN_URL, {
@@ -201,7 +345,16 @@ try {
       const cache = loadTokenCache()
       cache[clientId] = { access_token: data.access_token, expiry: Date.now() + data.expires_in * 1000 }
       saveTokenCache(cache)
-      console.log(JSON.stringify({ ok: true, refresh_token: data.refresh_token, scope: data.scope }))
+      // If an account was selected, write the refresh token straight into the store
+      // so it never has to be copied by hand.
+      if (storeAcct) {
+        const store = loadCredStore()
+        store.accounts[storeAcct] = { ...store.accounts[storeAcct], refresh_token: data.refresh_token }
+        saveCredStore(store)
+        console.log(JSON.stringify({ ok: true, account: storeAcct, refresh_token: fingerprint(data.refresh_token), scope: data.scope, stored: true }, null, 2))
+      } else {
+        console.log(JSON.stringify({ ok: true, refresh_token: data.refresh_token, scope: data.scope }))
+      }
       break
     }
 
@@ -246,14 +399,13 @@ try {
         const msg = await gmailFetch(
           `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
         )
-        const internalMs = Number(msg.internalDate)
         return {
           id: msg.id,
           threadId: msg.threadId,
           from: hdr(msg.payload?.headers, 'From'),
           subject: hdr(msg.payload?.headers, 'Subject'),
-          date: toLocalISO(new Date(internalMs)),
-          _internalMs: internalMs,
+          date: hdr(msg.payload?.headers, 'Date'),
+          internalDate: msg.internalDate,
           snippet: msg.snippet,
           labels: msg.labelIds,
         }
@@ -262,9 +414,8 @@ try {
       // keys off the Date header, which can drift from the real receipt time.
       // internalDate is Gmail's authoritative receipt timestamp (epoch ms).
       if (sinceMs !== null) {
-        messages = messages.filter(m => m._internalMs >= sinceMs)
+        messages = messages.filter(m => Number(m.internalDate) >= sinceMs)
       }
-      messages = messages.map(({ _internalMs, ...rest }) => rest)
       console.log(JSON.stringify({
         messages,
         resultSizeEstimate: sinceMs !== null ? messages.length : listData.resultSizeEstimate,
@@ -284,7 +435,7 @@ try {
         to: hdr(headers, 'To'),
         cc: hdr(headers, 'Cc'),
         subject: hdr(headers, 'Subject'),
-        date: toLocalISO(new Date(Number(msg.internalDate))),
+        date: hdr(headers, 'Date'),
         messageId: hdr(headers, 'Message-ID'),
         labels: msg.labelIds,
         body: extractBody(msg.payload),
@@ -341,7 +492,7 @@ try {
           id: msg.id,
           from: hdr(headers, 'From'),
           to: hdr(headers, 'To'),
-          date: toLocalISO(new Date(Number(msg.internalDate))),
+          date: hdr(headers, 'Date'),
           subject: hdr(headers, 'Subject'),
           labels: msg.labelIds,
           body: extractBody(msg.payload),
