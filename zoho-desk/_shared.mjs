@@ -244,15 +244,45 @@ function startOfDay(d) {
 
 // Format a Date as ISO 8601 with the system's local timezone offset
 // (e.g. "2026-05-21T10:30:00-04:00"). Returns null for invalid dates.
+// Resolve the timezone Shrok operates in. Shrok stores a workspace-wide IANA
+// `timezone` in config.json and requires all model-facing times to be
+// workspace-local — so format in THAT zone, not the host's system tz (the box
+// may be UTC while the user is in PT). Falls back to the host tz, then UTC.
+let _wsTzCache
+function workspaceTimeZone() {
+  if (_wsTzCache) return _wsTzCache
+  let tz
+  try {
+    const ws = process.env.SHROK_WORKSPACE_PATH || process.env.WORKSPACE_PATH
+    if (ws) {
+      const cfg = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf8'))
+      if (cfg && typeof cfg.timezone === 'string' && cfg.timezone.trim()) tz = cfg.timezone.trim()
+    }
+  } catch { /* no/unreadable config — fall back */ }
+  _wsTzCache = tz || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  return _wsTzCache
+}
+
 export function toLocalISO(d) {
   if (!d || isNaN(d.getTime())) return null
-  const pad = (n, w = 2) => String(n).padStart(w, '0')
-  const tz = -d.getTimezoneOffset()
-  const sign = tz >= 0 ? '+' : '-'
-  const absTz = Math.abs(tz)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T` +
-         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
-         `${sign}${pad(Math.floor(absTz / 60))}:${pad(absTz % 60)}`
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: workspaceTimeZone(),
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  })
+  const parts = Object.fromEntries(fmt.formatToParts(d).map(p => [p.type, p.value]))
+  const hour = parts.hour === '24' ? '00' : parts.hour
+  const utcMillis = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(hour), Number(parts.minute), Number(parts.second),
+  )
+  const offsetMin = Math.round((utcMillis - d.getTime()) / 60000)
+  const pad = (n) => String(n).padStart(2, '0')
+  const sign = offsetMin >= 0 ? '+' : '-'
+  const absOff = Math.abs(offsetMin)
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}:${parts.second}` +
+         `${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}`
 }
 
 const BASE = 'https://desk.zoho.com/api/v1'
